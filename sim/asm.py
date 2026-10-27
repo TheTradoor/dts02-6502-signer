@@ -5,6 +5,8 @@ Syntax: one statement per line, `label:` prefixes, `;` comments,
 Operands: #imm, zp/abs (an explicit 2-hex-digit `$xx` literal selects zero
 page), abs,X  abs,Y  (zp),Y, A (accumulator).  Expressions: $hex, %bin,
 decimal, 'c', labels/constants, + and -, <expr (low byte), >expr (high byte).
+Byte and word values must fit their unsigned encoded width; use <expr or
+>expr to explicitly select a byte.
 """
 
 import re
@@ -117,6 +119,12 @@ class Assembler:
         self.image = out
         return out
 
+    @staticmethod
+    def _check_range(value, bits, what):
+        maximum = (1 << bits) - 1
+        if not 0 <= value <= maximum:
+            raise AsmError(f"{what} out of range ({value}; expected 0..{maximum})")
+
     def _put(self, out, pc, b):
         off = pc - self.base
         if not 0 <= off < self.size:
@@ -146,6 +154,8 @@ class Assembler:
         if mnem in (".BYTE", ".WORD"):
             for item in self._split_args(arg):
                 v = self.eval(item, final)
+                if final:
+                    self._check_range(v, 8 if mnem == ".BYTE" else 16, mnem)
                 if mnem == ".BYTE":
                     self._put(out, pc, v)
                     pc += 1
@@ -173,6 +183,8 @@ class Assembler:
         mode, v = self.mode(mnem, arg, final)
         if mode not in OPS[mnem]:
             raise AsmError(f"{mnem} has no {mode} mode")
+        if final:
+            self._check_range(v, 8 * (SIZE[mode] - 1), f"{mode} operand")
         self._put(out, pc, OPS[mnem][mode])
         self._put(out, pc + 1, v)
         if SIZE[mode] == 3:
