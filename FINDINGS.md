@@ -1,0 +1,103 @@
+# DTS-02 rev 0.3: verification findings
+
+These results come from the simulation and checks in `sim/` (see `README.md`), run against `spec.md`. Each finding names the test that reproduces it.
+
+## Summary
+
+The core architecture holds up. The spec's pin tables wire up into a working computer: it boots, runs the spec's diagnostic ROM, and drives the display through the full 595 chain to the right glyphs. The locks and fault latch behave exactly as Section 11.4 says. Every digital item in Section 11.2 passes under random datasheet delays, at every oscillator corner, with no contention and no setup or hold violation.
+
+The one substantive issue is that rev 0.3's central claim is not fully guaranteed. Section 6.5 says chip selects change only while every output enable is inactive. At datasheet delay corners there is still a tens-of-nanoseconds race at the trailing edge of the read window (F1). It does not change function, but it does violate the spec's own acceptance limit. Moving one spare flip-flop and one spare gate already on the BOM fixes it, and that fix was verified in simulation.
+
+The other findings are text and number corrections.
+
+## Findings
+
+### F1. Medium: the read window can outlast the CPU's address hold
+
+- **Spec reference:** Section 6.5, which says "A change of selection between ROM, RAM and a port buffer happens while every output enable is inactive". Section 11.2 item 8.
+- **Mechanism:**
+  - `RD_WIN_N = !(Q_A & RWB)` comes from raw Q_A through U10 (HCT00, up to 30 ns).
+  - The CPU sees PHI2 fall one U7 (AC14) delay after raw Q_A, then changes its address tAH ≥ 10 ns later.
+  - `ROM_CE_N` is a single HCT04 delay behind A15.
+  - Worst case: 30 ns against 1.5 + 10 + 4 ns, so RD_WIN_N can still be low for about 15 ns after the new device is selected.
+  - In that window the newly selected ROM, RAM or U14/U15 sees both CE and OE active while the old device is still driving P_D.
+- **Evidence:** with delays forced to the datasheet corner (`sim/corners.py`), every ROM↔RAM and ROM↔U14 transition produces P_D overlaps of up to about 28 ns. They start 26–35 ns after PHI2 falls. This exceeds the 20 ns limit in Section 11.2 item 8. With random delays and matched Q//Q, the race did not appear in 60 runs, so it is a corner case.
+  - Tests: `tests/test_bus.py::TestReadWindowRace::test_rev03_overlap_at_corner`; `python3 -m sim race`.
+- **Impact:** no functional effect. U44 latched the data a full master period earlier, and every read and write in the simulation is correct. It is a short bus fight on each affected transition, and it contradicts the guarantee rev 0.3 was written to provide. The EPROM model turns its outputs on immediately because the AT27C256R gives no minimum, so the real overlap may be shorter.
+- **Recommended fix (no new packages):** make the phase generator a three-stage Johnson counter, so the read window closes one full master period before PHI2 falls.
+  - Use U45's unused flip-flop B as stage C: pin 12 D = Q_B, pin 11 CLK = MASTER_CLK, pin 13 /CLR = COLD_CLEAR_N, pin 10 /PRE = +5 V. Pin 9 = Q_C, pin 8 = /Q_C.
+  - U6 pin 2 (D_A) takes /Q_C instead of /Q_B.
+  - Generate RD_WIN_N from U18's spare 3-input NAND: pins 3, 4, 5 = Q_A, /Q_C, RWB; pin 6 = RD_WIN_N. U10 gate 3 becomes unused.
+  - EARLY, HOLD_N, LATCH_OE_N, the U4 enables and the write strobes are unchanged.
+  - The state sequence is 000→100→110→111→011→001, so PHI2 is high for three of six master periods. The CPU clock becomes master/6, so the 100 kHz CPU ceiling allows a 600 kHz master.
+  - The read window covers states 100 and 110. P_D quiet time grows to three master periods.
+  - Caveat: a three-stage Johnson counter has an illegal two-state loop (010↔101). COLD_CLEAR_N clears it at power-up; making it self-correcting takes one more gate.
+  - Verified at the same corner: zero overlaps. All scenarios and Section 11.2 measurements pass (`--six-state`; `test_six_state_fix_has_no_overlap`).
+- **Lower-margin alternative:** build U10 as a 74AC00. Its roughly 10 ns maximum makes the worst-case margin positive, but only by about 5 ns.
+
+### F2. Low: the oscillator's stated range is a typical value, not a bound
+
+- **Spec reference:** Section 5.3, which says "about 300–380 kHz … never above 400 kHz" (also in the change list).
+- **Evidence:** SN74HC14 thresholds at 4.5 V are VT+ 1.55–3.15 V, VT− 0.9–2.45 V and ΔVT 0.4–2.1 V. With those, 5 % R and C tolerance, and stray capacitance, 10 kΩ / 330 pF gives **127–890 kHz**, and a third of the corners exceed 400 kHz (`python3 -m sim check`).
+- **Impact:** the clock does not need the limit. The design simulates clean from 127 kHz up to an 8–12 MHz master (`TestMargins`, `TestDiagnosticRom.test_monte_carlo_delays_and_clock_corners`). The risk is that a stock part fails the Section 5.3 ≤ 400 kHz acceptance check, and that firmware debounce timing scales with the clock.
+- **Fix:** either keep "measure and trim" as the stated rule and drop the range claim, or use 820 pF (worst case 52–363 kHz). With the F1 fix, the ceiling becomes 600 kHz master.
+
+### F3. Low: the P_D capacitance budget and rise-time acceptance are tighter than the design needs
+
+- **Spec reference:** Section 6.5 (60 pF per P_D line), Section 11.2 item 7 (P_D ≤ 0.62 µs, C_D ≤ 1.0 µs).
+- **Evidence:**
+  - Seven loads on each P_D line come to about 35 pF typical and 85 pF maximum in pin capacitance alone. With breadboard strips and wire, a realistic line is about 60 pF typical and 112 pF worst case, so item 7 will likely fail on a real ten-board build.
+  - Functionally, unmapped and write-only port reads still return $FF up to about 1,000 pF at 380 kHz, and about 400 pF at 890 kHz (`TestMargins.test_unmapped_reads_tolerate_large_p_d_capacitance`).
+  - The binding limit is TI's 500 ns/V input-transition rate for HCT. That allows up to about 320 pF on P_D (4.7 kΩ) and about 150 pF on C_D (10 kΩ).
+- **Fix:** set acceptance from the transition-rate limit: P_D 10–90 % ≤ about 3 µs, C_D ≤ about 3 µs. Keep 60 pF as a layout target, not a pass/fail gate. Rev 0.3's 47 kΩ → 4.7 kΩ change is justified: 47 kΩ gives 940 ns/V, which breaks the HCT limit (`test_rev02_pullup_violated_hct_slew_limit`).
+
+### F4. Low (text): the reset-release delay range is understated
+
+- **Spec reference:** Section 5.3, "about 70–90 ms".
+- **Evidence:** with the HC14 VT+ spread and the unspecified tolerance of the 1 µF capacitor (±20 % assumed), the delay is 32–152 ms, about 74 ms at mid-threshold.
+- **Impact:** none functionally. It is always far more than the two CPU clocks WDC requires (`TestPowerUp`). Fix the stated range.
+
+### F5. Low (text): the Section 10.1 self-test scope contradicts itself
+
+- Step 4 says "Fresh start only: self-test the stack region". But the abort (0 0 1) and review (0 1 x) states also need the stack and scratch RAM: they call the display routine and compute the CRC. The paragraph after the table also requires those states to write "only after the stack self-test of step 4 has passed in that boot".
+- **Fix:** step 4 applies to every non-fault boot state. The test ROM does this, and the C0, C1 and C2 paths pass (`TestRecovery`).
+
+### F6. Trivial (text): an invalid instruction in Section 10.1 step 2
+
+`STA #$00 to $7F02` is not a 6502 instruction. It should read `LDA #$00` then `STA $7F02`.
+
+### F7. Low: the regulator dissipation assumes 0.30 A
+
+A worst-case current estimate comes to about 340 mA. That is the 214 mA display bound plus SRAM and EPROM active current, HCT ΔICC on the 16 P_D receivers at a 2.4 V high, pull-ups, the bleeder and the status LEDs. At 340 mA the regulator dissipates 2.5 W, a rise of about 51 °C instead of 45 °C. That is still acceptable with a ≤15 °C/W heatsink and the 500 mA fuse. Update the figure or replace it with a measurement.
+
+### F8. Info: mirrored lock ports
+
+A3–A7 are not decoded, so a write to any mirror of $7F03 or $7F04 (for example $7F0B) sets a lock. This matches the documented mirroring and fails closed, but a stray firmware store anywhere in $7Fxx can freeze a session (`test_mirrors_and_undriven_ports`).
+
+## Confirmed correct
+
+| Item | How it was checked |
+|---|---|
+| Section 11.3 diagnostic ROM image hash | The generator was executed straight from `spec.md`: hash matches, and the disassembly and vectors are correct. |
+| Section 10.6 RFC 8032 vector | An independent Ed25519 implementation reproduces A and R‖S (64 bytes). It also rejects the rev 0.2 65-byte string and passes RFC test 2. |
+| Pinouts and wiring for all 43 DIPs | ERC: 0 errors. No undriven inputs, no output-to-output or output-to-rail shorts, and the only three-state-only nets (P_D, C_D) have pull-ups. |
+| Placement table, Section 3.3 | 43 rows; row spans match pin counts, columns match package widths, no overlaps. |
+| BOM quantities | ICs, digits, and the 3.3 k / 220 Ω / 4.7 k / 10 k / 100 nF / LED counts all match the netlist. |
+| Johnson timing, write strobes, read latch | One WR_GPIO_N edge per $7F02 store, exactly one master period before PHI2 falls. C_D is held about 2.66 µs after PHI2 falls. RWB_CYCLE changes only at PHI2 rises. |
+| Bus handoff (Section 11.2 items 1–6, 8) | At most one driver on P_D and C_D. P_D gap ≥ 2 master periods, C_D gap ≥ 1. Checked across Monte Carlo seeds at 127, 380 and 890 kHz. |
+| Address decode and memory map | Diagnostic loop works. RAM probes at every bank boundary and walking address bit pass. $7F05, $7F02 and $7F0D read $FF; $7F08 mirrors $7F00. |
+| Locks and fault (Section 11.4) | Protected writes blocked, FAULT set, FAULT blocks every SRAM write including scratch, panel hardware-blanked, status at $7F01 correct. After FAULT, CPU RESET reaches the ROM-only hold with RAM_WE_N never asserted. Cold clear restores a fresh state. |
+| Reset and recovery (Section 10.1) | MESSAGE_LOCK → C0; valid result record → C2, with CRC-32 verified by the 6502 code; corrupted CRC → C1. No SRAM write above $3FFF in any recovery path. |
+| Display chain | Shift order, bank split, QA–QH to segment mapping, the SC56-11 pinout and the font table together produce "0123456789AbCdEF". |
+| Power and reset sequencing | COLD_CLEAR_N releases before CPU_RESET_N with many PHI2 clocks in between. GPIO is cleared and the display blanked at reset. |
+| Arithmetic | Pull-up τ, rise times and slew; VOL current; regulator dissipation; battery end-of-life per cell; LED currents; supervisor margins (460: 200 mV, 475: 50 mV); MCP1x0-460 trip range of 4.35–4.60 V. |
+
+Negative controls show the checks catch real faults. Rev 0.2-style OE wiring and an always-enabled write buffer are flagged as contention. Removing the reset qualification of EARLY_OK lets writes through during reset. A 16 MHz master produces timing violations.
+
+## Limits of this verification
+
+- The simulation is digital with ideal edges. It cannot assess ringing, ground bounce, the 5 ns PHI2 edge, supply droop or HCT input-transition behavior. The Section 11.2 oscilloscope checks are still required.
+- Delays are representative datasheet ranges (`sim/timing.py`). Minimums are guesses, because most datasheets do not give them.
+- The oscillator, supervisor, reset RC, switches and keys are behavioral. Their analog behavior is covered by closed-form calculation in `sim/analog.py`.
+- The test ROM is test firmware only. No signing firmware exists to verify. For speed, the boot ROM zeroes $0000–$03FF; `boot_rom(zero_end_page=0x40)` builds the spec-compliant $0000–$3FFF version.
+- The Solana and Squads sections (Section 10.5) and the live-key requirements (Section 12) are protocol and process material, outside a circuit simulation.
