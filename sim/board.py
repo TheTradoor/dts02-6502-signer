@@ -26,10 +26,15 @@ DEFAULT_CAP = {"P_D": 60.0, "C_D": 45.0}
 
 
 def build(rom_image, master_hz=380e3, seed=1, bb9=True, reset_delay_ns=None,
-          por_ns=20_000, mutations=(), cap_pf=None, vcd=None):
+          por_ns=20_000, mutations=(), cap_pf=None, vcd=None, physical=None):
+    """physical: optional (pin_remap, pullups) from sim.layout, where pullups is
+    [(net, ohms, pf)].  The netlist is then whatever the breadboard wiring
+    actually connects, not the schematic."""
     rng = random.Random(seed)
     sim = Simulator(rng)
     sim.vcd = vcd
+    if physical is not None:
+        sim.pin_remap = physical[0]
     mut = set(mutations)
     cap = dict(DEFAULT_CAP)
     if cap_pf:
@@ -45,15 +50,19 @@ def build(rom_image, master_hz=380e3, seed=1, bb9=True, reset_delay_ns=None,
         n.pullup_ohms = ohms
         n.cap_pf = pf
 
-    for n in P_D:
-        pullup(n, 4.7e3 if "weak_pd_pullups" not in mut else 47e3, cap["P_D"])
-    for n in C_D:
-        pullup(n, 10e3, cap["C_D"])
-    for n in SW:
-        pullup(n, 10e3)
-    for n in ["CPU_RDY", "CPU_IRQB", "CPU_NMIB", "CPU_BE", "CPU_SOB"]:
-        pullup(n, 10e3)
-    pullup("POR_RAW_N", 4.7e3)
+    if physical is not None:
+        for n, ohms, pf in physical[1]:
+            pullup(n, ohms, pf)
+    else:
+        for n in P_D:
+            pullup(n, 4.7e3 if "weak_pd_pullups" not in mut else 47e3, cap["P_D"])
+        for n in C_D:
+            pullup(n, 10e3, cap["C_D"])
+        for n in SW:
+            pullup(n, 10e3)
+        for n in ["CPU_RDY", "CPU_IRQB", "CPU_NMIB", "CPU_BE", "CPU_SOB"]:
+            pullup(n, 10e3)
+        pullup("POR_RAW_N", 4.7e3)
 
     A = [f"A{i}" for i in range(16)]
 

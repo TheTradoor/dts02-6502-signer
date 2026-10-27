@@ -175,6 +175,7 @@ class Simulator:
         self.check_from = 0.0      # ignore power-up transients before this time
         self.driver_watch = set()  # nets whose driver sets are logged
         self.driver_log = {}
+        self.pin_remap = None      # {(part, pin): net} from a physical layout
 
     # ---- construction -------------------------------------------------
     def net(self, name):

@@ -1,0 +1,968 @@
+kind,ref,value,net,from,to,length_mm
+part,R_CD0,10k,,BB1:a2(C_D0) BB1:L+@2(VCC),,
+part,R_CD1,10k,,BB1:a3(C_D1) BB1:L+@3(VCC),,
+part,R_CD2,10k,,BB1:a4(C_D2) BB1:L+@4(VCC),,
+part,R_CD3,10k,,BB1:a5(C_D3) BB1:L+@5(VCC),,
+part,R_CD4,10k,,BB1:a6(C_D4) BB1:L+@6(VCC),,
+part,R_CD5,10k,,BB1:a7(C_D5) BB1:L+@7(VCC),,
+part,R_CD6,10k,,BB1:a8(C_D6) BB1:L+@8(VCC),,
+part,R_CD7,10k,,BB1:a9(C_D7) BB1:L+@9(VCC),,
+part,R_PD0,4.7k,,BB10:a36(P_D0) BB10:L+@36(VCC),,
+part,R_PD1,4.7k,,BB10:a37(P_D1) BB10:L+@37(VCC),,
+part,R_PD2,4.7k,,BB10:a38(P_D2) BB10:L+@38(VCC),,
+part,R_PD3,4.7k,,BB10:a39(P_D3) BB10:L+@39(VCC),,
+part,R_PD4,4.7k,,BB10:a40(P_D4) BB10:L+@40(VCC),,
+part,R_PD5,4.7k,,BB10:a41(P_D5) BB10:L+@41(VCC),,
+part,R_PD6,4.7k,,BB10:a42(P_D6) BB10:L+@42(VCC),,
+part,R_PD7,4.7k,,BB10:a43(P_D7) BB10:L+@43(VCC),,
+part,R_CPU_RDY,10k,,BB1:a42(CPU_RDY) BB1:L+@42(VCC),,
+part,R_CPU_IRQB,10k,,BB1:a44(CPU_IRQB) BB1:L+@44(VCC),,
+part,R_CPU_NMIB,10k,,BB1:a46(CPU_NMIB) BB1:L+@46(VCC),,
+part,R_CPU_BE,10k,,BB1:f45(CPU_BE) BB1:R+@45(VCC),,
+part,R_CPU_SOB,10k,,BB1:f43(CPU_SOB) BB1:R+@43(VCC),,
+part,R_OSC,10k,,BB1:a14(OSC_RC) BB1:a15(MASTER_CLK),,
+part,C_OSC,330p C0G,,BB1:b14(OSC_RC) BB1:L-@14(GND),,
+part,R_RST,100k,,BB1:a19(COLD_CLEAR_N) BB1:g19(RESET_RC),,
+part,C_RST,1uF,,BB1:h19(RESET_RC) BB1:R-@19(GND),,
+part,R_RSTD,1k,,BB1:i19(RESET_RC) BB1:f21(RST_DIODE),,
+part,D_RST,"1N4148 (anode, cathode)",,BB1:g21(RST_DIODE) BB1:b19(COLD_CLEAR_N),,
+part,R_RSTBTN,1k,,SW:RESET_RC(RESET_RC) SW:RESET_BTN_N(RESET_BTN_N),,
+part,SW_RESET,pushbutton,,SW:RESET_BTN_N(RESET_BTN_N) SW:GND(GND),,
+part,R_KEY_ENTER,10k,,SW:KEYIN_ENTER(KEYIN_ENTER) SW:VCC(VCC),,
+part,C_KEY_ENTER,100n,,SW:KEYIN_ENTER(KEYIN_ENTER) SW:GND(GND),,
+part,R_KEYD_ENTER,1k,,SW:KEYIN_ENTER(KEYIN_ENTER) SW:KEYSW_ENTER(KEYSW_ENTER),,
+part,SW_ENTER,pushbutton,,SW:KEYSW_ENTER(KEYSW_ENTER) SW:GND(GND),,
+part,R_KEY_NEXT,10k,,SW:KEYIN_NEXT(KEYIN_NEXT) SW:VCC(VCC),,
+part,C_KEY_NEXT,100n,,SW:KEYIN_NEXT(KEYIN_NEXT) SW:GND(GND),,
+part,R_KEYD_NEXT,1k,,SW:KEYIN_NEXT(KEYIN_NEXT) SW:KEYSW_NEXT(KEYSW_NEXT),,
+part,SW_NEXT,pushbutton,,SW:KEYSW_NEXT(KEYSW_NEXT) SW:GND(GND),,
+part,R_KEY_BACK,10k,,SW:KEYIN_BACK(KEYIN_BACK) SW:VCC(VCC),,
+part,C_KEY_BACK,100n,,SW:KEYIN_BACK(KEYIN_BACK) SW:GND(GND),,
+part,R_KEYD_BACK,1k,,SW:KEYIN_BACK(KEYIN_BACK) SW:KEYSW_BACK(KEYSW_BACK),,
+part,SW_BACK,pushbutton,,SW:KEYSW_BACK(KEYSW_BACK) SW:GND(GND),,
+part,R_KEY_APPROVE,10k,,SW:KEYIN_APPROVE(KEYIN_APPROVE) SW:VCC(VCC),,
+part,C_KEY_APPROVE,100n,,SW:KEYIN_APPROVE(KEYIN_APPROVE) SW:GND(GND),,
+part,R_KEYD_APPROVE,1k,,SW:KEYIN_APPROVE(KEYIN_APPROVE) SW:KEYSW_APPROVE(KEYSW_APPROVE),,
+part,SW_APPROVE,pushbutton,,SW:KEYSW_APPROVE(KEYSW_APPROVE) SW:GND(GND),,
+part,R_KEY_ABORT,10k,,SW:KEYIN_ABORT(KEYIN_ABORT) SW:VCC(VCC),,
+part,C_KEY_ABORT,100n,,SW:KEYIN_ABORT(KEYIN_ABORT) SW:GND(GND),,
+part,R_KEYD_ABORT,1k,,SW:KEYIN_ABORT(KEYIN_ABORT) SW:KEYSW_ABORT(KEYSW_ABORT),,
+part,SW_ABORT,pushbutton,,SW:KEYSW_ABORT(KEYSW_ABORT) SW:GND(GND),,
+part,DIP0,DIP switch pole,,SW:SW0(SW0) SW:GND(GND),,
+part,R_SW0,10k,,BB4:a3(SW0) BB4:L+@3(VCC),,
+part,DIP1,DIP switch pole,,SW:SW1(SW1) SW:GND(GND),,
+part,R_SW1,10k,,BB4:a4(SW1) BB4:L+@4(VCC),,
+part,DIP2,DIP switch pole,,SW:SW2(SW2) SW:GND(GND),,
+part,R_SW2,10k,,BB4:a5(SW2) BB4:L+@5(VCC),,
+part,DIP3,DIP switch pole,,SW:SW3(SW3) SW:GND(GND),,
+part,R_SW3,10k,,BB4:a6(SW3) BB4:L+@6(VCC),,
+part,DIP4,DIP switch pole,,SW:SW4(SW4) SW:GND(GND),,
+part,R_SW4,10k,,BB4:a7(SW4) BB4:L+@7(VCC),,
+part,DIP5,DIP switch pole,,SW:SW5(SW5) SW:GND(GND),,
+part,R_SW5,10k,,BB4:a8(SW5) BB4:L+@8(VCC),,
+part,DIP6,DIP switch pole,,SW:SW6(SW6) SW:GND(GND),,
+part,R_SW6,10k,,BB4:a9(SW6) BB4:L+@9(VCC),,
+part,DIP7,DIP switch pole,,SW:SW7(SW7) SW:GND(GND),,
+part,R_SW7,10k,,BB4:a10(SW7) BB4:L+@10(VCC),,
+part,R_DATA0,220,,BB4:a29(DATA) BB4:a27(B0_SER),,
+part,R_DATA1,220,,BB4:b29(DATA) BB4:a26(B1_SER),,
+part,R_DATA2,220,,BB4:c29(DATA) BB4:a25(B2_SER),,
+part,R_DATA3,220,,BB4:d29(DATA) BB4:f27(B3_SER),,
+part,R_OE0,220,,BB3:g48(U20_18) BB3:f45(B0_OE_N),,
+part,R_OE1,220,,BB3:g50(U20_16) BB3:f56(B1_OE_N),,
+part,R_OE2,220,,BB3:g52(U20_14) BB3:f57(B2_OE_N),,
+part,R_OE3,220,,BB3:g54(U20_12) BB3:f58(B3_OE_N),,
+part,R_RCLK0,220,,BB3:a41(U19_9) BB3:a43(B0_RCLK),,
+part,R_RCLK1,220,,BB3:a39(U19_7) BB3:a44(B1_RCLK),,
+part,R_RCLK2,220,,BB3:a37(U19_5) BB3:a32(B2_RCLK),,
+part,R_RCLK3,220,,BB3:a35(U19_3) BB3:a31(B3_RCLK),,
+part,R_SRCLK0,220,,BB3:g35(U19_18) BB3:f32(B0_SRCLK),,
+part,R_SRCLK1,220,,BB3:g37(U19_16) BB3:f31(B1_SRCLK),,
+part,R_SRCLK2,220,,BB3:g39(U19_14) BB3:f43(B2_SRCLK),,
+part,R_SRCLK3,220,,BB3:g41(U19_12) BB3:f44(B3_SRCLK),,
+part,R_SRCLR0,220,,BB3:a54(U20_9) BB3:a56(B0_SRCLR_N),,
+part,R_SRCLR1,220,,BB3:a52(U20_7) BB3:a57(B1_SRCLR_N),,
+part,R_SRCLR2,220,,BB3:a50(U20_5) BB3:a45(B2_SRCLR_N),,
+part,R_SRCLR3,220,,BB3:a48(U20_3) BB3:a58(B3_SRCLR_N),,
+part,R_U21_a,3.3k,,LED:U21_Qa(U21_Qa) LED:D0_a(D0_a),,
+part,R_U21_b,3.3k,,LED:U21_Qb(U21_Qb) LED:D0_b(D0_b),,
+part,R_U21_c,3.3k,,LED:U21_Qc(U21_Qc) LED:D0_c(D0_c),,
+part,R_U21_d,3.3k,,LED:U21_Qd(U21_Qd) LED:D0_d(D0_d),,
+part,R_U21_dp,3.3k,,LED:U21_Qdp(U21_Qdp) LED:D0_dp(D0_dp),,
+part,R_U21_e,3.3k,,LED:U21_Qe(U21_Qe) LED:D0_e(D0_e),,
+part,R_U21_f,3.3k,,LED:U21_Qf(U21_Qf) LED:D0_f(D0_f),,
+part,R_U21_g,3.3k,,LED:U21_Qg(U21_Qg) LED:D0_g(D0_g),,
+part,R_U22_a,3.3k,,LED:U22_Qa(U22_Qa) LED:D1_a(D1_a),,
+part,R_U22_b,3.3k,,LED:U22_Qb(U22_Qb) LED:D1_b(D1_b),,
+part,R_U22_c,3.3k,,LED:U22_Qc(U22_Qc) LED:D1_c(D1_c),,
+part,R_U22_d,3.3k,,LED:U22_Qd(U22_Qd) LED:D1_d(D1_d),,
+part,R_U22_dp,3.3k,,LED:U22_Qdp(U22_Qdp) LED:D1_dp(D1_dp),,
+part,R_U22_e,3.3k,,LED:U22_Qe(U22_Qe) LED:D1_e(D1_e),,
+part,R_U22_f,3.3k,,LED:U22_Qf(U22_Qf) LED:D1_f(D1_f),,
+part,R_U22_g,3.3k,,LED:U22_Qg(U22_Qg) LED:D1_g(D1_g),,
+part,R_U23_a,3.3k,,LED:U23_Qa(U23_Qa) LED:D2_a(D2_a),,
+part,R_U23_b,3.3k,,LED:U23_Qb(U23_Qb) LED:D2_b(D2_b),,
+part,R_U23_c,3.3k,,LED:U23_Qc(U23_Qc) LED:D2_c(D2_c),,
+part,R_U23_d,3.3k,,LED:U23_Qd(U23_Qd) LED:D2_d(D2_d),,
+part,R_U23_dp,3.3k,,LED:U23_Qdp(U23_Qdp) LED:D2_dp(D2_dp),,
+part,R_U23_e,3.3k,,LED:U23_Qe(U23_Qe) LED:D2_e(D2_e),,
+part,R_U23_f,3.3k,,LED:U23_Qf(U23_Qf) LED:D2_f(D2_f),,
+part,R_U23_g,3.3k,,LED:U23_Qg(U23_Qg) LED:D2_g(D2_g),,
+part,R_U24_a,3.3k,,LED:U24_Qa(U24_Qa) LED:D3_a(D3_a),,
+part,R_U24_b,3.3k,,LED:U24_Qb(U24_Qb) LED:D3_b(D3_b),,
+part,R_U24_c,3.3k,,LED:U24_Qc(U24_Qc) LED:D3_c(D3_c),,
+part,R_U24_d,3.3k,,LED:U24_Qd(U24_Qd) LED:D3_d(D3_d),,
+part,R_U24_dp,3.3k,,LED:U24_Qdp(U24_Qdp) LED:D3_dp(D3_dp),,
+part,R_U24_e,3.3k,,LED:U24_Qe(U24_Qe) LED:D3_e(D3_e),,
+part,R_U24_f,3.3k,,LED:U24_Qf(U24_Qf) LED:D3_f(D3_f),,
+part,R_U24_g,3.3k,,LED:U24_Qg(U24_Qg) LED:D3_g(D3_g),,
+part,R_U25_a,3.3k,,LED:U25_Qa(U25_Qa) LED:D4_a(D4_a),,
+part,R_U25_b,3.3k,,LED:U25_Qb(U25_Qb) LED:D4_b(D4_b),,
+part,R_U25_c,3.3k,,LED:U25_Qc(U25_Qc) LED:D4_c(D4_c),,
+part,R_U25_d,3.3k,,LED:U25_Qd(U25_Qd) LED:D4_d(D4_d),,
+part,R_U25_dp,3.3k,,LED:U25_Qdp(U25_Qdp) LED:D4_dp(D4_dp),,
+part,R_U25_e,3.3k,,LED:U25_Qe(U25_Qe) LED:D4_e(D4_e),,
+part,R_U25_f,3.3k,,LED:U25_Qf(U25_Qf) LED:D4_f(D4_f),,
+part,R_U25_g,3.3k,,LED:U25_Qg(U25_Qg) LED:D4_g(D4_g),,
+part,R_U26_a,3.3k,,LED:U26_Qa(U26_Qa) LED:D5_a(D5_a),,
+part,R_U26_b,3.3k,,LED:U26_Qb(U26_Qb) LED:D5_b(D5_b),,
+part,R_U26_c,3.3k,,LED:U26_Qc(U26_Qc) LED:D5_c(D5_c),,
+part,R_U26_d,3.3k,,LED:U26_Qd(U26_Qd) LED:D5_d(D5_d),,
+part,R_U26_dp,3.3k,,LED:U26_Qdp(U26_Qdp) LED:D5_dp(D5_dp),,
+part,R_U26_e,3.3k,,LED:U26_Qe(U26_Qe) LED:D5_e(D5_e),,
+part,R_U26_f,3.3k,,LED:U26_Qf(U26_Qf) LED:D5_f(D5_f),,
+part,R_U26_g,3.3k,,LED:U26_Qg(U26_Qg) LED:D5_g(D5_g),,
+part,R_U27_a,3.3k,,LED:U27_Qa(U27_Qa) LED:D6_a(D6_a),,
+part,R_U27_b,3.3k,,LED:U27_Qb(U27_Qb) LED:D6_b(D6_b),,
+part,R_U27_c,3.3k,,LED:U27_Qc(U27_Qc) LED:D6_c(D6_c),,
+part,R_U27_d,3.3k,,LED:U27_Qd(U27_Qd) LED:D6_d(D6_d),,
+part,R_U27_dp,3.3k,,LED:U27_Qdp(U27_Qdp) LED:D6_dp(D6_dp),,
+part,R_U27_e,3.3k,,LED:U27_Qe(U27_Qe) LED:D6_e(D6_e),,
+part,R_U27_f,3.3k,,LED:U27_Qf(U27_Qf) LED:D6_f(D6_f),,
+part,R_U27_g,3.3k,,LED:U27_Qg(U27_Qg) LED:D6_g(D6_g),,
+part,R_U28_a,3.3k,,LED:U28_Qa(U28_Qa) LED:D7_a(D7_a),,
+part,R_U28_b,3.3k,,LED:U28_Qb(U28_Qb) LED:D7_b(D7_b),,
+part,R_U28_c,3.3k,,LED:U28_Qc(U28_Qc) LED:D7_c(D7_c),,
+part,R_U28_d,3.3k,,LED:U28_Qd(U28_Qd) LED:D7_d(D7_d),,
+part,R_U28_dp,3.3k,,LED:U28_Qdp(U28_Qdp) LED:D7_dp(D7_dp),,
+part,R_U28_e,3.3k,,LED:U28_Qe(U28_Qe) LED:D7_e(D7_e),,
+part,R_U28_f,3.3k,,LED:U28_Qf(U28_Qf) LED:D7_f(D7_f),,
+part,R_U28_g,3.3k,,LED:U28_Qg(U28_Qg) LED:D7_g(D7_g),,
+part,R_U29_a,3.3k,,LED:U29_Qa(U29_Qa) LED:D8_a(D8_a),,
+part,R_U29_b,3.3k,,LED:U29_Qb(U29_Qb) LED:D8_b(D8_b),,
+part,R_U29_c,3.3k,,LED:U29_Qc(U29_Qc) LED:D8_c(D8_c),,
+part,R_U29_d,3.3k,,LED:U29_Qd(U29_Qd) LED:D8_d(D8_d),,
+part,R_U29_dp,3.3k,,LED:U29_Qdp(U29_Qdp) LED:D8_dp(D8_dp),,
+part,R_U29_e,3.3k,,LED:U29_Qe(U29_Qe) LED:D8_e(D8_e),,
+part,R_U29_f,3.3k,,LED:U29_Qf(U29_Qf) LED:D8_f(D8_f),,
+part,R_U29_g,3.3k,,LED:U29_Qg(U29_Qg) LED:D8_g(D8_g),,
+part,R_U30_a,3.3k,,LED:U30_Qa(U30_Qa) LED:D9_a(D9_a),,
+part,R_U30_b,3.3k,,LED:U30_Qb(U30_Qb) LED:D9_b(D9_b),,
+part,R_U30_c,3.3k,,LED:U30_Qc(U30_Qc) LED:D9_c(D9_c),,
+part,R_U30_d,3.3k,,LED:U30_Qd(U30_Qd) LED:D9_d(D9_d),,
+part,R_U30_dp,3.3k,,LED:U30_Qdp(U30_Qdp) LED:D9_dp(D9_dp),,
+part,R_U30_e,3.3k,,LED:U30_Qe(U30_Qe) LED:D9_e(D9_e),,
+part,R_U30_f,3.3k,,LED:U30_Qf(U30_Qf) LED:D9_f(D9_f),,
+part,R_U30_g,3.3k,,LED:U30_Qg(U30_Qg) LED:D9_g(D9_g),,
+part,R_U31_a,3.3k,,LED:U31_Qa(U31_Qa) LED:D10_a(D10_a),,
+part,R_U31_b,3.3k,,LED:U31_Qb(U31_Qb) LED:D10_b(D10_b),,
+part,R_U31_c,3.3k,,LED:U31_Qc(U31_Qc) LED:D10_c(D10_c),,
+part,R_U31_d,3.3k,,LED:U31_Qd(U31_Qd) LED:D10_d(D10_d),,
+part,R_U31_dp,3.3k,,LED:U31_Qdp(U31_Qdp) LED:D10_dp(D10_dp),,
+part,R_U31_e,3.3k,,LED:U31_Qe(U31_Qe) LED:D10_e(D10_e),,
+part,R_U31_f,3.3k,,LED:U31_Qf(U31_Qf) LED:D10_f(D10_f),,
+part,R_U31_g,3.3k,,LED:U31_Qg(U31_Qg) LED:D10_g(D10_g),,
+part,R_U32_a,3.3k,,LED:U32_Qa(U32_Qa) LED:D11_a(D11_a),,
+part,R_U32_b,3.3k,,LED:U32_Qb(U32_Qb) LED:D11_b(D11_b),,
+part,R_U32_c,3.3k,,LED:U32_Qc(U32_Qc) LED:D11_c(D11_c),,
+part,R_U32_d,3.3k,,LED:U32_Qd(U32_Qd) LED:D11_d(D11_d),,
+part,R_U32_dp,3.3k,,LED:U32_Qdp(U32_Qdp) LED:D11_dp(D11_dp),,
+part,R_U32_e,3.3k,,LED:U32_Qe(U32_Qe) LED:D11_e(D11_e),,
+part,R_U32_f,3.3k,,LED:U32_Qf(U32_Qf) LED:D11_f(D11_f),,
+part,R_U32_g,3.3k,,LED:U32_Qg(U32_Qg) LED:D11_g(D11_g),,
+part,R_U33_a,3.3k,,LED:U33_Qa(U33_Qa) LED:D12_a(D12_a),,
+part,R_U33_b,3.3k,,LED:U33_Qb(U33_Qb) LED:D12_b(D12_b),,
+part,R_U33_c,3.3k,,LED:U33_Qc(U33_Qc) LED:D12_c(D12_c),,
+part,R_U33_d,3.3k,,LED:U33_Qd(U33_Qd) LED:D12_d(D12_d),,
+part,R_U33_dp,3.3k,,LED:U33_Qdp(U33_Qdp) LED:D12_dp(D12_dp),,
+part,R_U33_e,3.3k,,LED:U33_Qe(U33_Qe) LED:D12_e(D12_e),,
+part,R_U33_f,3.3k,,LED:U33_Qf(U33_Qf) LED:D12_f(D12_f),,
+part,R_U33_g,3.3k,,LED:U33_Qg(U33_Qg) LED:D12_g(D12_g),,
+part,R_U34_a,3.3k,,LED:U34_Qa(U34_Qa) LED:D13_a(D13_a),,
+part,R_U34_b,3.3k,,LED:U34_Qb(U34_Qb) LED:D13_b(D13_b),,
+part,R_U34_c,3.3k,,LED:U34_Qc(U34_Qc) LED:D13_c(D13_c),,
+part,R_U34_d,3.3k,,LED:U34_Qd(U34_Qd) LED:D13_d(D13_d),,
+part,R_U34_dp,3.3k,,LED:U34_Qdp(U34_Qdp) LED:D13_dp(D13_dp),,
+part,R_U34_e,3.3k,,LED:U34_Qe(U34_Qe) LED:D13_e(D13_e),,
+part,R_U34_f,3.3k,,LED:U34_Qf(U34_Qf) LED:D13_f(D13_f),,
+part,R_U34_g,3.3k,,LED:U34_Qg(U34_Qg) LED:D13_g(D13_g),,
+part,R_U35_a,3.3k,,LED:U35_Qa(U35_Qa) LED:D14_a(D14_a),,
+part,R_U35_b,3.3k,,LED:U35_Qb(U35_Qb) LED:D14_b(D14_b),,
+part,R_U35_c,3.3k,,LED:U35_Qc(U35_Qc) LED:D14_c(D14_c),,
+part,R_U35_d,3.3k,,LED:U35_Qd(U35_Qd) LED:D14_d(D14_d),,
+part,R_U35_dp,3.3k,,LED:U35_Qdp(U35_Qdp) LED:D14_dp(D14_dp),,
+part,R_U35_e,3.3k,,LED:U35_Qe(U35_Qe) LED:D14_e(D14_e),,
+part,R_U35_f,3.3k,,LED:U35_Qf(U35_Qf) LED:D14_f(D14_f),,
+part,R_U35_g,3.3k,,LED:U35_Qg(U35_Qg) LED:D14_g(D14_g),,
+part,R_U36_a,3.3k,,LED:U36_Qa(U36_Qa) LED:D15_a(D15_a),,
+part,R_U36_b,3.3k,,LED:U36_Qb(U36_Qb) LED:D15_b(D15_b),,
+part,R_U36_c,3.3k,,LED:U36_Qc(U36_Qc) LED:D15_c(D15_c),,
+part,R_U36_d,3.3k,,LED:U36_Qd(U36_Qd) LED:D15_d(D15_d),,
+part,R_U36_dp,3.3k,,LED:U36_Qdp(U36_Qdp) LED:D15_dp(D15_dp),,
+part,R_U36_e,3.3k,,LED:U36_Qe(U36_Qe) LED:D15_e(D15_e),,
+part,R_U36_f,3.3k,,LED:U36_Qf(U36_Qf) LED:D15_f(D15_f),,
+part,R_U36_g,3.3k,,LED:U36_Qg(U36_Qg) LED:D15_g(D15_g),,
+part,D0,SC56-11EWA,,LED:D0_e(D0_e) LED:D0_d(D0_d) LED:GND(GND) LED:D0_c(D0_c) LED:D0_dp(D0_dp) LED:D0_b(D0_b) LED:D0_a(D0_a) LED:GND(GND) LED:D0_f(D0_f) LED:D0_g(D0_g),,
+part,D1,SC56-11EWA,,LED:D1_e(D1_e) LED:D1_d(D1_d) LED:GND(GND) LED:D1_c(D1_c) LED:D1_dp(D1_dp) LED:D1_b(D1_b) LED:D1_a(D1_a) LED:GND(GND) LED:D1_f(D1_f) LED:D1_g(D1_g),,
+part,D10,SC56-11EWA,,LED:D10_e(D10_e) LED:D10_d(D10_d) LED:GND(GND) LED:D10_c(D10_c) LED:D10_dp(D10_dp) LED:D10_b(D10_b) LED:D10_a(D10_a) LED:GND(GND) LED:D10_f(D10_f) LED:D10_g(D10_g),,
+part,D11,SC56-11EWA,,LED:D11_e(D11_e) LED:D11_d(D11_d) LED:GND(GND) LED:D11_c(D11_c) LED:D11_dp(D11_dp) LED:D11_b(D11_b) LED:D11_a(D11_a) LED:GND(GND) LED:D11_f(D11_f) LED:D11_g(D11_g),,
+part,D12,SC56-11EWA,,LED:D12_e(D12_e) LED:D12_d(D12_d) LED:GND(GND) LED:D12_c(D12_c) LED:D12_dp(D12_dp) LED:D12_b(D12_b) LED:D12_a(D12_a) LED:GND(GND) LED:D12_f(D12_f) LED:D12_g(D12_g),,
+part,D13,SC56-11EWA,,LED:D13_e(D13_e) LED:D13_d(D13_d) LED:GND(GND) LED:D13_c(D13_c) LED:D13_dp(D13_dp) LED:D13_b(D13_b) LED:D13_a(D13_a) LED:GND(GND) LED:D13_f(D13_f) LED:D13_g(D13_g),,
+part,D14,SC56-11EWA,,LED:D14_e(D14_e) LED:D14_d(D14_d) LED:GND(GND) LED:D14_c(D14_c) LED:D14_dp(D14_dp) LED:D14_b(D14_b) LED:D14_a(D14_a) LED:GND(GND) LED:D14_f(D14_f) LED:D14_g(D14_g),,
+part,D15,SC56-11EWA,,LED:D15_e(D15_e) LED:D15_d(D15_d) LED:GND(GND) LED:D15_c(D15_c) LED:D15_dp(D15_dp) LED:D15_b(D15_b) LED:D15_a(D15_a) LED:GND(GND) LED:D15_f(D15_f) LED:D15_g(D15_g),,
+part,D2,SC56-11EWA,,LED:D2_e(D2_e) LED:D2_d(D2_d) LED:GND(GND) LED:D2_c(D2_c) LED:D2_dp(D2_dp) LED:D2_b(D2_b) LED:D2_a(D2_a) LED:GND(GND) LED:D2_f(D2_f) LED:D2_g(D2_g),,
+part,D3,SC56-11EWA,,LED:D3_e(D3_e) LED:D3_d(D3_d) LED:GND(GND) LED:D3_c(D3_c) LED:D3_dp(D3_dp) LED:D3_b(D3_b) LED:D3_a(D3_a) LED:GND(GND) LED:D3_f(D3_f) LED:D3_g(D3_g),,
+part,D4,SC56-11EWA,,LED:D4_e(D4_e) LED:D4_d(D4_d) LED:GND(GND) LED:D4_c(D4_c) LED:D4_dp(D4_dp) LED:D4_b(D4_b) LED:D4_a(D4_a) LED:GND(GND) LED:D4_f(D4_f) LED:D4_g(D4_g),,
+part,D5,SC56-11EWA,,LED:D5_e(D5_e) LED:D5_d(D5_d) LED:GND(GND) LED:D5_c(D5_c) LED:D5_dp(D5_dp) LED:D5_b(D5_b) LED:D5_a(D5_a) LED:GND(GND) LED:D5_f(D5_f) LED:D5_g(D5_g),,
+part,D6,SC56-11EWA,,LED:D6_e(D6_e) LED:D6_d(D6_d) LED:GND(GND) LED:D6_c(D6_c) LED:D6_dp(D6_dp) LED:D6_b(D6_b) LED:D6_a(D6_a) LED:GND(GND) LED:D6_f(D6_f) LED:D6_g(D6_g),,
+part,D7,SC56-11EWA,,LED:D7_e(D7_e) LED:D7_d(D7_d) LED:GND(GND) LED:D7_c(D7_c) LED:D7_dp(D7_dp) LED:D7_b(D7_b) LED:D7_a(D7_a) LED:GND(GND) LED:D7_f(D7_f) LED:D7_g(D7_g),,
+part,D8,SC56-11EWA,,LED:D8_e(D8_e) LED:D8_d(D8_d) LED:GND(GND) LED:D8_c(D8_c) LED:D8_dp(D8_dp) LED:D8_b(D8_b) LED:D8_a(D8_a) LED:GND(GND) LED:D8_f(D8_f) LED:D8_g(D8_g),,
+part,D9,SC56-11EWA,,LED:D9_e(D9_e) LED:D9_d(D9_d) LED:GND(GND) LED:D9_c(D9_c) LED:D9_dp(D9_dp) LED:D9_b(D9_b) LED:D9_a(D9_a) LED:GND(GND) LED:D9_f(D9_f) LED:D9_g(D9_g),,
+part,R_LED_MESSAGE_LOCK,4.7k,,BB9:a7(MESSAGE_LOCK) BB9:a10(LEDA_MESSAGE_LOCK),,
+part,LED_MESSAGE_LOCK,3 mm,,BB9:b10(LEDA_MESSAGE_LOCK) BB9:L-@10(GND),,
+part,R_LED_RESULT_LOCK,4.7k,,BB9:g8(RESULT_LOCK) BB9:f10(LEDA_RESULT_LOCK),,
+part,LED_RESULT_LOCK,3 mm,,BB9:g10(LEDA_RESULT_LOCK) BB9:R-@10(GND),,
+part,R_LED_FAULT,4.7k,,BB9:a18(FAULT) BB9:a21(LEDA_FAULT),,
+part,LED_FAULT,3 mm,,BB9:b21(LEDA_FAULT) BB9:L-@21(GND),,
+part,U42,"MCP130-460 (RST,VDD,VSS)",,PWR:POR_RAW_N(POR_RAW_N) PWR:VCC(VCC) PWR:GND(GND),,
+part,R_POR,4.7k,,PWR:POR_RAW_N(POR_RAW_N) PWR:VCC(VCC),,
+part,C_U42,100n,,PWR:VCC(VCC) PWR:GND(GND),,
+part,U43,"L7805ACV (IN,GND,OUT)",,PWR:VIN(VIN) PWR:GND(GND) PWR:VCC(VCC),,
+part,C_IN1,330n,,PWR:VIN(VIN) PWR:GND(GND),,
+part,C_IN2,100uF,,PWR:VIN(VIN) PWR:GND(GND),,
+part,C_OUT1,100n,,PWR:VCC(VCC) PWR:GND(GND),,
+part,C_OUT2,47uF,,PWR:VCC(VCC) PWR:GND(GND),,
+part,R_BLEED,1k 1/4W,,PWR:VCC(VCC) PWR:GND(GND),,
+part,D_REV,"1N5819 (anode, cathode)",,PWR:VBAT_SW(VBAT_SW) PWR:VIN(VIN),,
+part,C_BYP_U1,100n,,BB1:b48(VCC) BB1:L-@48(GND),,
+part,C_BYP_U10,100n,,BB2:h54(VCC) BB2:R-@54(GND),,
+part,C_BYP_U11,100n,,BB3:h2(VCC) BB3:R-@2(GND),,
+part,C_BYP_U12,100n,,BB3:h12(VCC) BB3:R-@12(GND),,
+part,C_BYP_U13,100n,,BB3:h22(VCC) BB3:R-@22(GND),,
+part,C_BYP_U14,100n,,BB4:h2(VCC) BB4:R-@2(GND),,
+part,C_BYP_U15,100n,,BB4:h15(VCC) BB4:R-@15(GND),,
+part,C_BYP_U16,100n,,BB4:h28(VCC) BB4:R-@28(GND),,
+part,C_BYP_U17,100n,,BB4:h41(VCC) BB4:R-@41(GND),,
+part,C_BYP_U18,100n,,BB4:h51(VCC) BB4:R-@51(GND),,
+part,C_BYP_U19,100n,,BB3:h33(VCC) BB3:R-@33(GND),,
+part,C_BYP_U2,100n,,BB2:h19(VCC) BB2:R-@19(GND),,
+part,C_BYP_U20,100n,,BB3:h46(VCC) BB3:R-@46(GND),,
+part,C_BYP_U21,100n,,BB5:h3(VCC) BB5:R-@3(GND),,
+part,C_BYP_U22,100n,,BB5:h16(VCC) BB5:R-@16(GND),,
+part,C_BYP_U23,100n,,BB5:h29(VCC) BB5:R-@29(GND),,
+part,C_BYP_U24,100n,,BB5:h42(VCC) BB5:R-@42(GND),,
+part,C_BYP_U25,100n,,BB6:h3(VCC) BB6:R-@3(GND),,
+part,C_BYP_U26,100n,,BB6:h16(VCC) BB6:R-@16(GND),,
+part,C_BYP_U27,100n,,BB6:h29(VCC) BB6:R-@29(GND),,
+part,C_BYP_U28,100n,,BB6:h42(VCC) BB6:R-@42(GND),,
+part,C_BYP_U29,100n,,BB7:h3(VCC) BB7:R-@3(GND),,
+part,C_BYP_U3,100n,,BB2:h2(VCC) BB2:R-@2(GND),,
+part,C_BYP_U30,100n,,BB7:h16(VCC) BB7:R-@16(GND),,
+part,C_BYP_U31,100n,,BB7:h29(VCC) BB7:R-@29(GND),,
+part,C_BYP_U32,100n,,BB7:h42(VCC) BB7:R-@42(GND),,
+part,C_BYP_U33,100n,,BB8:h3(VCC) BB8:R-@3(GND),,
+part,C_BYP_U34,100n,,BB8:h16(VCC) BB8:R-@16(GND),,
+part,C_BYP_U35,100n,,BB8:h29(VCC) BB8:R-@29(GND),,
+part,C_BYP_U36,100n,,BB8:h42(VCC) BB8:R-@42(GND),,
+part,C_BYP_U37,100n,,BB9:h3(VCC) BB9:R-@3(GND),,
+part,C_BYP_U38,100n,,BB9:h14(VCC) BB9:R-@14(GND),,
+part,C_BYP_U39,100n,,BB9:h25(VCC) BB9:R-@25(GND),,
+part,C_BYP_U4,100n,,BB10:h2(VCC) BB10:R-@2(GND),,
+part,C_BYP_U40,100n,,BB9:h37(VCC) BB9:R-@37(GND),,
+part,C_BYP_U41,100n,,BB9:h48(VCC) BB9:R-@48(GND),,
+part,C_BYP_U44,100n,,BB10:h14(VCC) BB10:R-@14(GND),,
+part,C_BYP_U45,100n,,BB10:h26(VCC) BB10:R-@26(GND),,
+part,C_BYP_U5,100n,,BB1:h14(VCC) BB1:R-@14(GND),,
+part,C_BYP_U6,100n,,BB1:h23(VCC) BB1:R-@23(GND),,
+part,C_BYP_U7,100n,,BB1:h32(VCC) BB1:R-@32(GND),,
+part,C_BYP_U8,100n,,BB2:h36(VCC) BB2:R-@36(GND),,
+part,C_BYP_U9,100n,,BB2:h45(VCC) BB2:R-@45(GND),,
+part,C_BULK_BB1,10uF,,BB1:R+@1(VCC) BB1:R-@1(GND),,
+part,C_BULK_BB10,10uF,,BB10:R+@1(VCC) BB10:R-@1(GND),,
+part,C_BULK_BB2,10uF,,BB2:R+@1(VCC) BB2:R-@1(GND),,
+part,C_BULK_BB3,10uF,,BB3:R+@1(VCC) BB3:R-@1(GND),,
+part,C_BULK_BB4,10uF,,BB4:R+@1(VCC) BB4:R-@1(GND),,
+part,C_BULK_BB9,10uF,,BB9:R+@1(VCC) BB9:R-@1(GND),,
+part,C_BULK_BB5,10uF,,BB5:R+@1(VCC) BB5:R-@1(GND),,
+part,C_BULK_BB6,10uF,,BB6:R+@1(VCC) BB6:R-@1(GND),,
+part,C_BULK_BB7,10uF,,BB7:R+@1(VCC) BB7:R-@1(GND),,
+part,C_BULK_BB8,10uF,,BB8:R+@1(VCC) BB8:R-@1(GND),,
+wire,,,VCC,BB1:a48,BB1:L+@48,16
+wire,,,GND,BB1:f60,BB1:R-@60,32
+wire,,,GND,BB2:a60,BB2:L-@60,19
+wire,,,VCC,BB2:g54,BB2:R+@54,26
+wire,,,GND,BB3:a8,BB3:L-@8,19
+wire,,,VCC,BB3:g2,BB3:R+@2,26
+wire,,,GND,BB3:a12,BB3:L-@12,19
+wire,,,GND,BB3:a13,BB3:L-@13,19
+wire,,,GND,BB3:a15,BB3:L-@15,19
+wire,,,GND,BB3:a16,BB3:L-@16,19
+wire,,,GND,BB3:a18,BB3:L-@18,19
+wire,,,VCC,BB3:g12,BB3:R+@12,26
+wire,,,GND,BB3:a26,BB3:L-@26,19
+wire,,,VCC,BB3:a27,BB3:L+@27,16
+wire,,,GND,BB3:a29,BB3:L-@29,19
+wire,,,VCC,BB3:g22,BB3:R+@22,26
+wire,,,GND,BB4:a11,BB4:L-@11,19
+wire,,,VCC,BB4:g2,BB4:R+@2,26
+wire,,,GND,BB4:a24,BB4:L-@24,19
+wire,,,VCC,BB4:g15,BB4:R+@15,26
+wire,,,GND,BB4:a37,BB4:L-@37,19
+wire,,,VCC,BB4:g28,BB4:R+@28,26
+wire,,,GND,BB4:a47,BB4:L-@47,19
+wire,,,GND,BB4:g42,BB4:R-@42,29
+wire,,,VCC,BB4:g41,BB4:R+@41,26
+wire,,,GND,BB4:a53,BB4:L-@53,19
+wire,,,GND,BB4:a54,BB4:L-@54,19
+wire,,,GND,BB4:a55,BB4:L-@55,19
+wire,,,GND,BB4:a57,BB4:L-@57,19
+wire,,,GND,BB4:g56,BB4:R-@56,29
+wire,,,GND,BB4:g55,BB4:R-@55,29
+wire,,,GND,BB4:g54,BB4:R-@54,29
+wire,,,VCC,BB4:g51,BB4:R+@51,26
+wire,,,GND,BB3:a33,BB3:L-@33,19
+wire,,,GND,BB3:a42,BB3:L-@42,19
+wire,,,GND,BB3:g34,BB3:R-@34,29
+wire,,,VCC,BB3:g33,BB3:R+@33,26
+wire,,,GND,BB2:a32,BB2:L-@32,19
+wire,,,VCC,BB2:f19,BB2:R+@19,29
+wire,,,GND,BB3:a46,BB3:L-@46,19
+wire,,,GND,BB3:a55,BB3:L-@55,19
+wire,,,GND,BB3:g47,BB3:R-@47,29
+wire,,,VCC,BB3:g46,BB3:R+@46,26
+wire,,,GND,BB5:a10,BB5:L-@10,19
+wire,,,VCC,BB5:g3,BB5:R+@3,26
+wire,,,GND,BB5:a23,BB5:L-@23,19
+wire,,,VCC,BB5:g16,BB5:R+@16,26
+wire,,,GND,BB5:a36,BB5:L-@36,19
+wire,,,VCC,BB5:g29,BB5:R+@29,26
+wire,,,GND,BB5:a49,BB5:L-@49,19
+wire,,,VCC,BB5:g42,BB5:R+@42,26
+wire,,,GND,BB6:a10,BB6:L-@10,19
+wire,,,VCC,BB6:g3,BB6:R+@3,26
+wire,,,GND,BB6:a23,BB6:L-@23,19
+wire,,,VCC,BB6:g16,BB6:R+@16,26
+wire,,,GND,BB6:a36,BB6:L-@36,19
+wire,,,VCC,BB6:g29,BB6:R+@29,26
+wire,,,GND,BB6:a49,BB6:L-@49,19
+wire,,,VCC,BB6:g42,BB6:R+@42,26
+wire,,,GND,BB7:a10,BB7:L-@10,19
+wire,,,VCC,BB7:g3,BB7:R+@3,26
+wire,,,VCC,BB2:a2,BB2:L+@2,16
+wire,,,GND,BB2:a15,BB2:L-@15,19
+wire,,,VCC,BB2:f2,BB2:R+@2,29
+wire,,,GND,BB7:a23,BB7:L-@23,19
+wire,,,VCC,BB7:g16,BB7:R+@16,26
+wire,,,GND,BB7:a36,BB7:L-@36,19
+wire,,,VCC,BB7:g29,BB7:R+@29,26
+wire,,,GND,BB7:a49,BB7:L-@49,19
+wire,,,VCC,BB7:g42,BB7:R+@42,26
+wire,,,GND,BB8:a10,BB8:L-@10,19
+wire,,,VCC,BB8:g3,BB8:R+@3,26
+wire,,,GND,BB8:a23,BB8:L-@23,19
+wire,,,VCC,BB8:g16,BB8:R+@16,26
+wire,,,GND,BB8:a36,BB8:L-@36,19
+wire,,,VCC,BB8:g29,BB8:R+@29,26
+wire,,,GND,BB8:a49,BB8:L-@49,19
+wire,,,VCC,BB8:g42,BB8:R+@42,26
+wire,,,VCC,BB9:a4,BB9:L+@4,16
+wire,,,VCC,BB9:a6,BB9:L+@6,16
+wire,,,GND,BB9:a9,BB9:L-@9,19
+wire,,,VCC,BB9:g7,BB9:R+@7,26
+wire,,,VCC,BB9:g5,BB9:R+@5,26
+wire,,,VCC,BB9:g3,BB9:R+@3,26
+wire,,,VCC,BB9:a17,BB9:L+@17,16
+wire,,,GND,BB9:a20,BB9:L-@20,19
+wire,,,VCC,BB9:g18,BB9:R+@18,26
+wire,,,GND,BB9:g17,BB9:R-@17,29
+wire,,,GND,BB9:g16,BB9:R-@16,29
+wire,,,VCC,BB9:g15,BB9:R+@15,26
+wire,,,VCC,BB9:g14,BB9:R+@14,26
+wire,,,GND,BB9:a29,BB9:L-@29,19
+wire,,,GND,BB9:a30,BB9:L-@30,19
+wire,,,GND,BB9:a32,BB9:L-@32,19
+wire,,,GND,BB9:g31,BB9:R-@31,29
+wire,,,GND,BB9:g30,BB9:R-@30,29
+wire,,,GND,BB9:g28,BB9:R-@28,29
+wire,,,GND,BB9:g27,BB9:R-@27,29
+wire,,,GND,BB9:g26,BB9:R-@26,29
+wire,,,VCC,BB9:g25,BB9:R+@25,26
+wire,,,GND,BB10:a11,BB10:L-@11,19
+wire,,,VCC,BB10:g2,BB10:R+@2,26
+wire,,,GND,BB9:a43,BB9:L-@43,19
+wire,,,VCC,BB9:g37,BB9:R+@37,26
+wire,,,GND,BB9:a54,BB9:L-@54,19
+wire,,,VCC,BB9:g48,BB9:R+@48,26
+wire,,,GND,BB10:a23,BB10:L-@23,19
+wire,,,VCC,BB10:g14,BB10:R+@14,26
+wire,,,VCC,BB10:a29,BB10:L+@29,16
+wire,,,GND,BB10:a32,BB10:L-@32,19
+wire,,,VCC,BB10:g30,BB10:R+@30,26
+wire,,,GND,BB10:g29,BB10:R-@29,29
+wire,,,GND,BB10:g28,BB10:R-@28,29
+wire,,,VCC,BB10:g27,BB10:R+@27,26
+wire,,,VCC,BB10:g26,BB10:R+@26,26
+wire,,,GND,BB1:a20,BB1:L-@20,19
+wire,,,GND,BB1:g15,BB1:R-@15,29
+wire,,,VCC,BB1:g14,BB1:R+@14,26
+wire,,,VCC,BB1:a26,BB1:L+@26,16
+wire,,,GND,BB1:a29,BB1:L-@29,19
+wire,,,VCC,BB1:g27,BB1:R+@27,26
+wire,,,VCC,BB1:g23,BB1:R+@23,26
+wire,,,GND,BB1:a34,BB1:L-@34,19
+wire,,,GND,BB1:a36,BB1:L-@36,19
+wire,,,GND,BB1:a38,BB1:L-@38,19
+wire,,,GND,BB1:g37,BB1:R-@37,29
+wire,,,GND,BB1:g35,BB1:R-@35,29
+wire,,,GND,BB1:g33,BB1:R-@33,29
+wire,,,VCC,BB1:g32,BB1:R+@32,26
+wire,,,GND,BB2:a42,BB2:L-@42,19
+wire,,,GND,BB2:g41,BB2:R-@41,29
+wire,,,GND,BB2:g39,BB2:R-@39,29
+wire,,,GND,BB2:g37,BB2:R-@37,29
+wire,,,VCC,BB2:g36,BB2:R+@36,26
+wire,,,GND,BB2:a51,BB2:L-@51,19
+wire,,,VCC,BB2:g45,BB2:R+@45,26
+wire,,,A0,BB1:a49,BB2:a28,182
+wire,,,A0,BB2:b28,BB2:a11,60
+wire,,,A0,BB2:b11,BB3:a22,94
+wire,,,A1,BB1:a50,BB2:a27,184
+wire,,,A1,BB2:b27,BB2:a10,60
+wire,,,A1,BB2:b10,BB3:a23,96
+wire,,,A10,BB1:a59,BB2:a50,173
+wire,,,A10,BB2:b50,BB2:f26,82
+wire,,,A10,BB2:h26,BB2:f9,60
+wire,,,A11,BB1:a60,BB2:a49,174
+wire,,,A11,BB2:b49,BB2:f24,85
+wire,,,A11,BB2:h24,BB2:f7,60
+wire,,,A12,BB1:f59,BB2:a48,154
+wire,,,A12,BB2:b48,BB2:a20,92
+wire,,,A12,BB2:b20,BB2:a3,60
+wire,,,A13,BB1:f58,BB2:a47,154
+wire,,,A13,BB2:b47,BB2:f21,88
+wire,,,A13,BB2:h21,BB2:f4,60
+wire,,,A13,BB2:h4,BB9:a25,234
+wire,,,A14,BB1:f57,BB2:a46,154
+wire,,,A14,BB2:b46,BB2:a19,89
+wire,,,A14,BB2:b19,BB2:f3,60
+wire,,,A14,BB2:h3,BB9:a38,248
+wire,,,A15,BB1:f56,BB2:a36,162
+wire,,,A2,BB1:a51,BB2:a26,187
+wire,,,A2,BB2:b26,BB2:a9,60
+wire,,,A2,BB2:b9,BB3:a24,99
+wire,,,A3,BB1:a52,BB2:a25,189
+wire,,,A3,BB2:b25,BB2:a8,60
+wire,,,A4,BB1:a53,BB2:a24,192
+wire,,,A4,BB2:b24,BB2:a7,60
+wire,,,A5,BB1:a54,BB2:a23,195
+wire,,,A5,BB2:b23,BB2:a6,60
+wire,,,A6,BB1:a55,BB2:a22,198
+wire,,,A6,BB2:b22,BB2:a5,60
+wire,,,A7,BB1:a56,BB2:a21,201
+wire,,,A7,BB2:b21,BB2:a4,60
+wire,,,A8,BB1:a57,BB2:g47,197
+wire,,,A8,BB2:h47,BB2:f22,83
+wire,,,A8,BB2:h22,BB2:f5,60
+wire,,,A9,BB1:a58,BB2:g48,197
+wire,,,A9,BB2:h48,BB2:f23,83
+wire,,,A9,BB2:h23,BB2:f6,60
+wire,,,B0_OE_N,BB3:g45,BB5:g6,269
+wire,,,B0_OE_N,BB5:h6,BB5:g19,48
+wire,,,B0_OE_N,BB5:h19,BB5:g32,48
+wire,,,B0_OE_N,BB5:h32,BB5:g45,48
+wire,,,B0_RCLK,BB3:b43,BB5:g7,253
+wire,,,B0_RCLK,BB5:h7,BB5:g20,48
+wire,,,B0_RCLK,BB5:h20,BB5:g33,48
+wire,,,B0_RCLK,BB5:h33,BB5:g46,48
+wire,,,B0_SER,BB4:b27,BB5:g5,344
+wire,,,B0_SRCLK,BB3:g32,BB5:g8,288
+wire,,,B0_SRCLK,BB5:h8,BB5:g21,48
+wire,,,B0_SRCLK,BB5:h21,BB5:g34,48
+wire,,,B0_SRCLK,BB5:h34,BB5:g47,48
+wire,,,B0_SRCLR_N,BB3:b56,BB5:g9,242
+wire,,,B0_SRCLR_N,BB5:h9,BB5:g22,48
+wire,,,B0_SRCLR_N,BB5:h22,BB5:g35,48
+wire,,,B0_SRCLR_N,BB5:h35,BB5:g48,48
+wire,,,B1_OE_N,BB3:g56,BB6:g6,182
+wire,,,B1_OE_N,BB6:h6,BB6:g19,48
+wire,,,B1_OE_N,BB6:h19,BB6:g32,48
+wire,,,B1_OE_N,BB6:h32,BB6:g45,48
+wire,,,B1_RCLK,BB3:b44,BB6:g7,182
+wire,,,B1_RCLK,BB6:h7,BB6:g20,48
+wire,,,B1_RCLK,BB6:h20,BB6:g33,48
+wire,,,B1_RCLK,BB6:h33,BB6:g46,48
+wire,,,B1_SER,BB4:b26,BB6:g5,275
+wire,,,B1_SRCLK,BB3:g31,BB6:g8,223
+wire,,,B1_SRCLK,BB6:h8,BB6:g21,48
+wire,,,B1_SRCLK,BB6:h21,BB6:g34,48
+wire,,,B1_SRCLK,BB6:h34,BB6:g47,48
+wire,,,B1_SRCLR_N,BB6:g48,BB6:g35,48
+wire,,,B1_SRCLR_N,BB6:h35,BB6:g22,48
+wire,,,B1_SRCLR_N,BB6:h22,BB6:g9,48
+wire,,,B1_SRCLR_N,BB6:h9,BB3:b57,163
+wire,,,B2_OE_N,BB7:g45,BB7:g32,48
+wire,,,B2_OE_N,BB7:h32,BB7:g19,48
+wire,,,B2_OE_N,BB7:h19,BB7:g6,48
+wire,,,B2_OE_N,BB7:h6,BB3:g57,107
+wire,,,B2_RCLK,BB3:b32,BB7:g7,157
+wire,,,B2_RCLK,BB7:h7,BB7:g20,48
+wire,,,B2_RCLK,BB7:h20,BB7:g33,48
+wire,,,B2_RCLK,BB7:h33,BB7:g46,48
+wire,,,B2_SER,BB4:b25,BB7:g5,215
+wire,,,B2_SRCLK,BB3:g43,BB7:g8,142
+wire,,,B2_SRCLK,BB7:h8,BB7:g21,48
+wire,,,B2_SRCLK,BB7:h21,BB7:g34,48
+wire,,,B2_SRCLK,BB7:h34,BB7:g47,48
+wire,,,B2_SRCLR_N,BB3:b45,BB7:g9,128
+wire,,,B2_SRCLR_N,BB7:h9,BB7:g22,48
+wire,,,B2_SRCLR_N,BB7:h22,BB7:g35,48
+wire,,,B2_SRCLR_N,BB7:h35,BB7:g48,48
+wire,,,B3_OE_N,BB8:g45,BB8:g32,48
+wire,,,B3_OE_N,BB8:h32,BB8:g19,48
+wire,,,B3_OE_N,BB8:h19,BB8:g6,48
+wire,,,B3_OE_N,BB8:h6,BB3:g58,65
+wire,,,B3_RCLK,BB3:b31,BB8:g7,148
+wire,,,B3_RCLK,BB8:h7,BB8:g20,48
+wire,,,B3_RCLK,BB8:h20,BB8:g33,48
+wire,,,B3_RCLK,BB8:h33,BB8:g46,48
+wire,,,B3_SER,BB4:g27,BB8:g5,174
+wire,,,B3_SRCLK,BB3:g44,BB8:g8,112
+wire,,,B3_SRCLK,BB8:h8,BB8:g21,48
+wire,,,B3_SRCLK,BB8:h21,BB8:g34,48
+wire,,,B3_SRCLK,BB8:h34,BB8:g47,48
+wire,,,B3_SRCLR_N,BB8:g48,BB8:g35,48
+wire,,,B3_SRCLR_N,BB8:h35,BB8:g22,48
+wire,,,B3_SRCLR_N,BB8:h22,BB8:g9,48
+wire,,,B3_SRCLR_N,BB8:h9,BB3:b58,78
+wire,,,BAD_WRITE,BB9:g40,BB9:a49,45
+wire,,,CLK0,BB3:a34,BB4:a32,91
+wire,,,CLK1,BB3:a36,BB4:a33,91
+wire,,,CLK2,BB3:a38,BB4:a36,91
+wire,,,CLK3,BB3:a40,BB4:g36,115
+wire,,,COLD_CLEAR_N,BB9:g4,BB9:a3,34
+wire,,,COLD_CLEAR_N,BB9:b3,BB9:a14,42
+wire,,,COLD_CLEAR_N,BB9:b14,BB3:g7,152
+wire,,,COLD_CLEAR_N,BB3:h7,BB10:a26,205
+wire,,,COLD_CLEAR_N,BB10:b26,BB1:g24,70
+wire,,,COLD_CLEAR_N,BB1:h24,BB1:a23,36
+wire,,,COLD_CLEAR_N,BB1:b23,BB1:c19,22
+wire,,,CPU_RESET_N,BB1:f41,BB3:a6,254
+wire,,,CPU_RESET_N,BB3:b6,BB3:g8,31
+wire,,,CPU_RESET_N,BB3:h8,BB4:a28,90
+wire,,,CPU_RESET_N,BB4:b28,BB4:a51,77
+wire,,,CPU_RESET_N,BB4:b51,BB3:g51,70
+wire,,,CPU_RESET_N,BB3:h51,BB3:g49,17
+wire,,,CPU_RESET_N,BB3:h49,BB3:g53,22
+wire,,,CPU_RESET_N,BB3:h53,BB3:g55,17
+wire,,,CPU_RESET_N,BB3:h55,BB9:g38,176
+wire,,,C_D0,BB1:b2,BB10:a3,88
+wire,,,C_D0,BB10:b3,BB10:g15,51
+wire,,,C_D0,BB10:h15,BB1:f48,139
+wire,,,C_D1,BB1:b3,BB10:a4,88
+wire,,,C_D1,BB10:b4,BB10:g16,51
+wire,,,C_D1,BB10:h16,BB1:f49,139
+wire,,,C_D2,BB1:b4,BB10:a5,88
+wire,,,C_D2,BB10:b5,BB10:g17,51
+wire,,,C_D2,BB10:h17,BB1:f50,139
+wire,,,C_D3,BB1:b5,BB10:a6,88
+wire,,,C_D3,BB10:b6,BB10:g18,51
+wire,,,C_D3,BB10:h18,BB1:f51,139
+wire,,,C_D4,BB1:f52,BB10:g19,137
+wire,,,C_D4,BB10:h19,BB10:a7,54
+wire,,,C_D4,BB10:b7,BB1:b6,91
+wire,,,C_D5,BB1:f53,BB10:g20,137
+wire,,,C_D5,BB10:h20,BB10:a8,54
+wire,,,C_D5,BB10:b8,BB1:b7,91
+wire,,,C_D6,BB1:f54,BB10:g21,137
+wire,,,C_D6,BB10:h21,BB10:a9,54
+wire,,,C_D6,BB10:b9,BB1:b8,91
+wire,,,C_D7,BB1:f55,BB10:g22,137
+wire,,,C_D7,BB10:h22,BB10:a10,54
+wire,,,C_D7,BB10:b10,BB1:b9,91
+wire,,,DISPLAY_ENABLE,BB4:g32,BB4:a52,73
+wire,,,DISPLAY_OE_N,BB3:a47,BB3:a49,16
+wire,,,DISPLAY_OE_N,BB3:b49,BB3:a51,17
+wire,,,DISPLAY_OE_N,BB3:b51,BB3:a53,17
+wire,,,DISPLAY_OE_N,BB3:b53,BB4:g53,111
+wire,,,EARLY,BB10:g23,BB3:a5,157
+wire,,,EARLY,BB3:b5,BB3:a4,14
+wire,,,EARLY_OK,BB2:a57,BB3:a7,177
+wire,,,FAULT,BB4:a23,BB9:b18,95
+wire,,,FAULT,BB9:c18,BB9:a48,98
+wire,,,FAULT,BB9:b48,BB9:a51,19
+wire,,,FAULT_N,BB4:g52,BB9:a19,122
+wire,,,FAULT_NEXT,BB9:a15,BB9:a50,112
+wire,,,HIGH_RAM,BB9:a39,BB9:a40,13
+wire,,,HOLD_N,BB2:g57,BB3:g3,187
+wire,,,IO_N,BB2:a55,BB2:g51,36
+wire,,,IO_N,BB2:h51,BB3:a25,103
+wire,,,KEYIN_ABORT,BB4:g44,SW:KEYIN_ABORT,178
+wire,,,KEYIN_APPROVE,BB4:g46,SW:KEYIN_APPROVE,172
+wire,,,KEYIN_BACK,BB4:a45,SW:KEYIN_BACK,176
+wire,,,KEYIN_ENTER,BB4:a41,SW:KEYIN_ENTER,187
+wire,,,KEYIN_NEXT,BB4:a43,SW:KEYIN_NEXT,182
+wire,,,KEY_ABORT,BB4:a20,BB4:g45,87
+wire,,,KEY_APPROVE,BB4:a19,BB4:g47,95
+wire,,,KEY_BACK,BB4:a18,BB4:a46,92
+wire,,,KEY_ENTER,BB4:a16,BB4:a42,86
+wire,,,KEY_NEXT,BB4:a17,BB4:a44,89
+wire,,,LATCH,BB3:g42,BB3:g40,16
+wire,,,LATCH,BB3:h40,BB3:g38,17
+wire,,,LATCH,BB3:h38,BB3:g36,17
+wire,,,LATCH,BB3:h36,BB4:g33,88
+wire,,,LATCH_OE_N,BB10:a14,BB3:g5,196
+wire,,,MASTER_CLK,BB1:b15,BB1:a25,39
+wire,,,MASTER_CLK,BB1:b25,BB1:g26,31
+wire,,,MESSAGE_LOCK,BB4:a21,BB9:a26,92
+wire,,,MESSAGE_LOCK,BB9:b26,BB9:b7,65
+wire,,,PHI2,BB1:a33,BB1:f44,48
+wire,,,PHI2,BB1:h44,BB9:a16,395
+wire,,,POR_INV,BB1:a17,BB1:a18,13
+wire,,,POR_RAW_N,BB1:a16,PWR:POR_RAW_N,500
+wire,,,PROTECTED,BB9:g42,BB9:a42,33
+wire,,,PROTECTED,BB9:b42,BB9:a52,39
+wire,,,PROT_WRITE,BB9:g39,BB9:g43,22
+wire,,,P_D0,BB10:b36,BB10:a15,71
+wire,,,P_D0,BB10:b15,BB10:g4,48
+wire,,,P_D0,BB10:h4,BB2:a12,69
+wire,,,P_D0,BB2:b12,BB2:a29,60
+wire,,,P_D0,BB2:b29,BB4:a30,168
+wire,,,P_D0,BB4:b30,BB4:g17,53
+wire,,,P_D0,BB4:h17,BB4:g4,48
+wire,,,P_D1,BB10:b37,BB10:a16,71
+wire,,,P_D1,BB10:b16,BB10:g5,48
+wire,,,P_D1,BB10:h5,BB2:a13,69
+wire,,,P_D1,BB2:b13,BB2:a30,60
+wire,,,P_D1,BB2:b30,BB4:a31,168
+wire,,,P_D1,BB4:b31,BB4:g18,53
+wire,,,P_D1,BB4:h18,BB4:g5,48
+wire,,,P_D2,BB10:b38,BB10:a17,71
+wire,,,P_D2,BB10:b17,BB10:g6,48
+wire,,,P_D2,BB10:h6,BB2:a14,69
+wire,,,P_D2,BB2:b14,BB2:a31,60
+wire,,,P_D2,BB2:b31,BB4:a34,168
+wire,,,P_D2,BB4:b34,BB4:g19,58
+wire,,,P_D2,BB4:h19,BB4:g6,48
+wire,,,P_D3,BB10:b39,BB10:a18,71
+wire,,,P_D3,BB10:b18,BB10:g7,48
+wire,,,P_D3,BB10:h7,BB2:f15,88
+wire,,,P_D3,BB2:h15,BB2:f32,60
+wire,,,P_D3,BB2:h32,BB4:a35,145
+wire,,,P_D3,BB4:b35,BB4:g20,58
+wire,,,P_D3,BB4:h20,BB4:g7,48
+wire,,,P_D4,BB10:b40,BB10:a19,71
+wire,,,P_D4,BB10:b19,BB10:g8,48
+wire,,,P_D4,BB10:h8,BB2:f14,87
+wire,,,P_D4,BB2:h14,BB2:f31,60
+wire,,,P_D4,BB2:h31,BB4:g35,169
+wire,,,P_D4,BB4:h35,BB4:g21,51
+wire,,,P_D4,BB4:h21,BB4:g8,48
+wire,,,P_D5,BB10:b41,BB10:a20,71
+wire,,,P_D5,BB10:b20,BB10:g9,48
+wire,,,P_D5,BB10:h9,BB2:f13,86
+wire,,,P_D5,BB2:h13,BB2:f30,60
+wire,,,P_D5,BB2:h30,BB4:g34,169
+wire,,,P_D5,BB4:h34,BB4:g22,45
+wire,,,P_D5,BB4:h22,BB4:g9,48
+wire,,,P_D6,BB10:b42,BB10:a21,71
+wire,,,P_D6,BB10:b21,BB10:g10,48
+wire,,,P_D6,BB10:h10,BB2:f12,85
+wire,,,P_D6,BB2:h12,BB2:f29,60
+wire,,,P_D6,BB2:h29,BB4:g31,168
+wire,,,P_D6,BB4:h31,BB4:g23,34
+wire,,,P_D6,BB4:h23,BB4:g10,48
+wire,,,P_D7,BB10:b43,BB10:a22,71
+wire,,,P_D7,BB10:b22,BB10:g11,48
+wire,,,P_D7,BB10:h11,BB2:f11,85
+wire,,,P_D7,BB2:h11,BB2:f28,60
+wire,,,P_D7,BB2:h28,BB4:g30,168
+wire,,,P_D7,BB4:h30,BB4:g24,28
+wire,,,P_D7,BB4:h24,BB4:g11,48
+wire,,,QA_N,BB1:a32,BB1:a28,22
+wire,,,QA_N,BB1:b28,BB10:a2,119
+wire,,,QB_N,BB1:a24,BB1:g29,38
+wire,,,QB_N,BB1:h29,BB3:a3,238
+wire,,,Q_A,BB3:a2,BB2:g59,186
+wire,,,Q_A,BB2:h59,BB10:a28,150
+wire,,,Q_A,BB10:b28,BB1:g25,71
+wire,,,Q_A,BB1:h25,BB1:a27,37
+wire,,,Q_B,BB1:g28,BB2:g56,191
+wire,,,RAM_CE_N,BB2:f27,BB2:a40,53
+wire,,,RAM_CE_N,BB2:b40,BB2:a56,57
+wire,,,RAM_SELECT,BB2:a41,BB9:a37,252
+wire,,,RAM_WE_N,BB2:f20,BB3:g15,95
+wire,,,RD_WIN_N,BB2:g60,BB2:f25,112
+wire,,,RD_WIN_N,BB2:h25,BB2:f8,60
+wire,,,RD_WIN_N,BB2:h8,BB3:g4,88
+wire,,,RD_WIN_N,BB3:h4,BB4:g3,88
+wire,,,RD_WIN_N,BB4:h3,BB4:g16,48
+wire,,,RESET_RC,BB1:j19,SW:RESET_RC,402
+wire,,,RESET_RC_INV,BB1:g17,BB1:g20,19
+wire,,,RESET_RC_READY,BB1:g18,BB3:g6,254
+wire,,,RESULT_LOCK,BB4:a22,BB9:a27,92
+wire,,,RESULT_LOCK,BB9:b27,BB9:h8,70
+wire,,,RWB,BB1:f47,BB10:a27,94
+wire,,,RWB,BB10:b27,BB10:g3,83
+wire,,,RWB,BB10:h3,BB2:a38,126
+wire,,,RWB,BB2:b38,BB2:g58,72
+wire,,,RWB_CYCLE,BB10:a30,BB2:g55,137
+wire,,,SELECTED_LOCK,BB9:a28,BB9:a41,48
+wire,,,SET_MESSAGE_N,BB9:a5,BB9:g54,155
+wire,,,SET_RESULT_N,BB9:g51,BB9:g6,141
+wire,,,SW0,BB4:b3,SW:SW0,298
+wire,,,SW1,BB4:b4,SW:SW1,295
+wire,,,SW2,BB4:b5,SW:SW2,292
+wire,,,SW3,BB4:b6,SW:SW3,289
+wire,,,SW4,BB4:b7,SW:SW4,286
+wire,,,SW5,BB4:b8,SW:SW5,283
+wire,,,SW6,BB4:b9,SW:SW6,280
+wire,,,SW7,BB4:b10,SW:SW7,277
+wire,,,U21_QH,BB5:g10,BB5:g18,33
+wire,,,U21_Qa,BB5:g4,LED:U21_Qa,227
+wire,,,U21_Qb,BB5:a3,LED:U21_Qb,228
+wire,,,U21_Qc,BB5:a4,LED:U21_Qc,225
+wire,,,U21_Qd,BB5:a5,LED:U21_Qd,223
+wire,,,U21_Qdp,BB5:a9,LED:U21_Qdp,211
+wire,,,U21_Qe,BB5:a6,LED:U21_Qe,220
+wire,,,U21_Qf,BB5:a7,LED:U21_Qf,217
+wire,,,U21_Qg,BB5:a8,LED:U21_Qg,214
+wire,,,U22_QH,BB5:g23,BB5:g31,33
+wire,,,U22_Qa,BB5:g17,LED:U22_Qa,188
+wire,,,U22_Qb,BB5:a16,LED:U22_Qb,191
+wire,,,U22_Qc,BB5:a17,LED:U22_Qc,188
+wire,,,U22_Qd,BB5:a18,LED:U22_Qd,185
+wire,,,U22_Qdp,BB5:a22,LED:U22_Qdp,174
+wire,,,U22_Qe,BB5:a19,LED:U22_Qe,183
+wire,,,U22_Qf,BB5:a20,LED:U22_Qf,180
+wire,,,U22_Qg,BB5:a21,LED:U22_Qg,177
+wire,,,U23_QH,BB5:g36,BB5:g44,33
+wire,,,U23_Qa,BB5:g30,LED:U23_Qa,150
+wire,,,U23_Qb,BB5:a29,LED:U23_Qb,157
+wire,,,U23_Qc,BB5:a30,LED:U23_Qc,154
+wire,,,U23_Qd,BB5:a31,LED:U23_Qd,151
+wire,,,U23_Qdp,BB5:a35,LED:U23_Qdp,140
+wire,,,U23_Qe,BB5:a32,LED:U23_Qe,148
+wire,,,U23_Qf,BB5:a33,LED:U23_Qf,145
+wire,,,U23_Qg,BB5:a34,LED:U23_Qg,143
+wire,,,U24_Qa,BB5:g43,LED:U24_Qa,116
+wire,,,U24_Qb,BB5:a42,LED:U24_Qb,127
+wire,,,U24_Qc,BB5:a43,LED:U24_Qc,124
+wire,,,U24_Qd,BB5:a44,LED:U24_Qd,122
+wire,,,U24_Qdp,BB5:a48,LED:U24_Qdp,112
+wire,,,U24_Qe,BB5:a45,LED:U24_Qe,119
+wire,,,U24_Qf,BB5:a46,LED:U24_Qf,117
+wire,,,U24_Qg,BB5:a47,LED:U24_Qg,114
+wire,,,U25_QH,BB6:g10,BB6:g18,33
+wire,,,U25_Qa,BB6:g4,LED:U25_Qa,228
+wire,,,U25_Qb,BB6:a3,LED:U25_Qb,229
+wire,,,U25_Qc,BB6:a4,LED:U25_Qc,226
+wire,,,U25_Qd,BB6:a5,LED:U25_Qd,223
+wire,,,U25_Qdp,BB6:a9,LED:U25_Qdp,211
+wire,,,U25_Qe,BB6:a6,LED:U25_Qe,220
+wire,,,U25_Qf,BB6:a7,LED:U25_Qf,217
+wire,,,U25_Qg,BB6:a8,LED:U25_Qg,214
+wire,,,U26_QH,BB6:g23,BB6:g31,33
+wire,,,U26_Qa,BB6:g17,LED:U26_Qa,188
+wire,,,U26_Qb,BB6:a16,LED:U26_Qb,191
+wire,,,U26_Qc,BB6:a17,LED:U26_Qc,188
+wire,,,U26_Qd,BB6:a18,LED:U26_Qd,185
+wire,,,U26_Qdp,BB6:a22,LED:U26_Qdp,173
+wire,,,U26_Qe,BB6:a19,LED:U26_Qe,182
+wire,,,U26_Qf,BB6:a20,LED:U26_Qf,179
+wire,,,U26_Qg,BB6:a21,LED:U26_Qg,176
+wire,,,U27_QH,BB6:g36,BB6:g44,33
+wire,,,U27_Qa,BB6:g30,LED:U27_Qa,150
+wire,,,U27_Qb,BB6:a29,LED:U27_Qb,155
+wire,,,U27_Qc,BB6:a30,LED:U27_Qc,152
+wire,,,U27_Qd,BB6:a31,LED:U27_Qd,149
+wire,,,U27_Qdp,BB6:a35,LED:U27_Qdp,137
+wire,,,U27_Qe,BB6:a32,LED:U27_Qe,146
+wire,,,U27_Qf,BB6:a33,LED:U27_Qf,143
+wire,,,U27_Qg,BB6:a34,LED:U27_Qg,140
+wire,,,U28_Qa,BB6:g43,LED:U28_Qa,113
+wire,,,U28_Qb,BB6:a42,LED:U28_Qb,123
+wire,,,U28_Qc,BB6:a43,LED:U28_Qc,120
+wire,,,U28_Qd,BB6:a44,LED:U28_Qd,117
+wire,,,U28_Qdp,BB6:a48,LED:U28_Qdp,107
+wire,,,U28_Qe,BB6:a45,LED:U28_Qe,115
+wire,,,U28_Qf,BB6:a46,LED:U28_Qf,112
+wire,,,U28_Qg,BB6:a47,LED:U28_Qg,109
+wire,,,U29_QH,BB7:g10,BB7:g18,33
+wire,,,U29_Qa,BB7:g4,LED:U29_Qa,230
+wire,,,U29_Qb,BB7:a3,LED:U29_Qb,229
+wire,,,U29_Qc,BB7:a4,LED:U29_Qc,226
+wire,,,U29_Qd,BB7:a5,LED:U29_Qd,224
+wire,,,U29_Qdp,BB7:a9,LED:U29_Qdp,212
+wire,,,U29_Qe,BB7:a6,LED:U29_Qe,221
+wire,,,U29_Qf,BB7:a7,LED:U29_Qf,218
+wire,,,U29_Qg,BB7:a8,LED:U29_Qg,215
+wire,,,U30_QH,BB7:g23,BB7:g31,33
+wire,,,U30_Qa,BB7:g17,LED:U30_Qa,190
+wire,,,U30_Qb,BB7:a16,LED:U30_Qb,190
+wire,,,U30_Qc,BB7:a17,LED:U30_Qc,188
+wire,,,U30_Qd,BB7:a18,LED:U30_Qd,185
+wire,,,U30_Qdp,BB7:a22,LED:U30_Qdp,173
+wire,,,U30_Qe,BB7:a19,LED:U30_Qe,182
+wire,,,U30_Qf,BB7:a20,LED:U30_Qf,179
+wire,,,U30_Qg,BB7:a21,LED:U30_Qg,176
+wire,,,U31_QH,BB7:g36,BB7:g44,33
+wire,,,U31_Qa,BB7:g30,LED:U31_Qa,150
+wire,,,U31_Qb,BB7:a29,LED:U31_Qb,153
+wire,,,U31_Qc,BB7:a30,LED:U31_Qc,150
+wire,,,U31_Qd,BB7:a31,LED:U31_Qd,147
+wire,,,U31_Qdp,BB7:a35,LED:U31_Qdp,136
+wire,,,U31_Qe,BB7:a32,LED:U31_Qe,144
+wire,,,U31_Qf,BB7:a33,LED:U31_Qf,142
+wire,,,U31_Qg,BB7:a34,LED:U31_Qg,139
+wire,,,U32_Qa,BB7:g43,LED:U32_Qa,112
+wire,,,U32_Qb,BB7:a42,LED:U32_Qb,119
+wire,,,U32_Qc,BB7:a43,LED:U32_Qc,116
+wire,,,U32_Qd,BB7:a44,LED:U32_Qd,114
+wire,,,U32_Qdp,BB7:a48,LED:U32_Qdp,103
+wire,,,U32_Qe,BB7:a45,LED:U32_Qe,111
+wire,,,U32_Qf,BB7:a46,LED:U32_Qf,108
+wire,,,U32_Qg,BB7:a47,LED:U32_Qg,105
+wire,,,U33_QH,BB8:g10,BB8:g18,33
+wire,,,U33_Qa,BB8:g4,LED:U33_Qa,232
+wire,,,U33_Qb,BB8:a3,LED:U33_Qb,231
+wire,,,U33_Qc,BB8:a4,LED:U33_Qc,228
+wire,,,U33_Qd,BB8:a5,LED:U33_Qd,225
+wire,,,U33_Qdp,BB8:a9,LED:U33_Qdp,213
+wire,,,U33_Qe,BB8:a6,LED:U33_Qe,222
+wire,,,U33_Qf,BB8:a7,LED:U33_Qf,219
+wire,,,U33_Qg,BB8:a8,LED:U33_Qg,216
+wire,,,U34_QH,BB8:g23,BB8:g31,33
+wire,,,U34_Qa,BB8:g17,LED:U34_Qa,191
+wire,,,U34_Qb,BB8:a16,LED:U34_Qb,191
+wire,,,U34_Qc,BB8:a17,LED:U34_Qc,188
+wire,,,U34_Qd,BB8:a18,LED:U34_Qd,185
+wire,,,U34_Qdp,BB8:a22,LED:U34_Qdp,173
+wire,,,U34_Qe,BB8:a19,LED:U34_Qe,182
+wire,,,U34_Qf,BB8:a20,LED:U34_Qf,179
+wire,,,U34_Qg,BB8:a21,LED:U34_Qg,176
+wire,,,U35_QH,BB8:g36,BB8:g44,33
+wire,,,U35_Qa,BB8:g30,LED:U35_Qa,151
+wire,,,U35_Qb,BB8:a29,LED:U35_Qb,153
+wire,,,U35_Qc,BB8:a30,LED:U35_Qc,150
+wire,,,U35_Qd,BB8:a31,LED:U35_Qd,147
+wire,,,U35_Qdp,BB8:a35,LED:U35_Qdp,135
+wire,,,U35_Qe,BB8:a32,LED:U35_Qe,144
+wire,,,U35_Qf,BB8:a33,LED:U35_Qf,141
+wire,,,U35_Qg,BB8:a34,LED:U35_Qg,138
+wire,,,U36_Qa,BB8:g43,LED:U36_Qa,112
+wire,,,U36_Qb,BB8:a42,LED:U36_Qb,117
+wire,,,U36_Qc,BB8:a43,LED:U36_Qc,114
+wire,,,U36_Qd,BB8:a44,LED:U36_Qd,111
+wire,,,U36_Qdp,BB8:a48,LED:U36_Qdp,100
+wire,,,U36_Qe,BB8:a45,LED:U36_Qe,108
+wire,,,U36_Qf,BB8:a46,LED:U36_Qf,105
+wire,,,U36_Qg,BB8:a47,LED:U36_Qg,102
+wire,,,WRITE_BLOCK,BB3:g13,BB9:a53,191
+wire,,,WR_GPIO_N,BB3:g18,BB4:g37,108
+wire,,,WR_PHASE_N,BB2:a59,BB3:g16,173
+wire,,,WR_PHASE_N,BB3:h16,BB3:g14,17
+wire,,,WR_PHASE_N,BB3:h14,BB9:g49,198
+wire,,,WR_PHASE_N,BB9:h49,BB9:g52,19
+wire,,,Y0_N,BB3:g23,BB4:a2,94
+wire,,,Y1_N,BB3:g24,BB4:a15,73
+wire,,,Y2_N,BB3:g17,BB3:g25,33
+wire,,,Y3_N,BB3:g26,BB9:g53,189
+wire,,,Y4_N,BB3:g27,BB9:g50,184
+wire,,,nA15,BB2:f10,BB2:a37,91
+wire,,,nA15,BB2:b37,BB2:a45,34
+wire,,,nA15,BB2:b45,BB2:a54,36
+wire,,,nRWB,BB2:a58,BB2:a39,65
+wire,,,nRWB,BB2:b39,BB9:g41,272
+wire,,,VCC,PWR:VCC,BB1:L+@1,529
+wire,,,VCC,BB1:L+@31,BB1:L+@32,13
+wire,,,VCC,BB1:R+@31,BB1:R+@33,16
+wire,,,VCC,BB1:L+@10,BB1:R+@2,61
+wire,,,GND,PWR:GND,BB1:L-@1,531
+wire,,,GND,BB1:L-@31,BB1:L-@32,13
+wire,,,GND,BB1:R-@31,BB1:R-@34,19
+wire,,,GND,BB1:L-@2,BB1:R-@2,61
+wire,,,VCC,PWR:VCC,BB10:L+@1,465
+wire,,,VCC,BB10:L+@31,BB10:L+@32,13
+wire,,,VCC,BB10:R+@31,BB10:R+@32,13
+wire,,,VCC,BB10:L+@2,BB10:R+@3,55
+wire,,,GND,PWR:GND,BB10:L-@1,467
+wire,,,GND,BB10:L-@31,BB10:L-@33,16
+wire,,,GND,BB10:R-@31,BB10:R-@32,13
+wire,,,GND,BB10:L-@2,BB10:R-@3,61
+wire,,,VCC,PWR:VCC,BB2:L+@1,406
+wire,,,VCC,BB2:L+@31,BB2:L+@32,13
+wire,,,VCC,BB2:R+@31,BB2:R+@32,13
+wire,,,VCC,BB2:L+@3,BB2:R+@3,55
+wire,,,GND,PWR:GND,BB2:L-@1,408
+wire,,,GND,BB2:L-@31,BB2:L-@33,16
+wire,,,GND,BB2:R-@31,BB2:R-@32,13
+wire,,,GND,BB2:L-@2,BB2:R-@3,61
+wire,,,VCC,PWR:VCC,BB3:L+@1,357
+wire,,,VCC,BB3:L+@31,BB3:L+@32,13
+wire,,,VCC,BB3:R+@31,BB3:R+@32,13
+wire,,,VCC,BB3:L+@2,BB3:R+@3,55
+wire,,,GND,PWR:GND,BB3:L-@1,359
+wire,,,GND,BB3:L-@31,BB3:L-@32,13
+wire,,,GND,BB3:R-@31,BB3:R-@32,13
+wire,,,GND,BB3:L-@2,BB3:R-@3,61
+wire,,,VCC,PWR:VCC,BB4:L+@1,322
+wire,,,VCC,BB4:L+@31,BB4:L+@32,13
+wire,,,VCC,BB4:R+@31,BB4:R+@32,13
+wire,,,VCC,BB4:L+@2,BB4:R+@3,55
+wire,,,GND,PWR:GND,BB4:L-@1,323
+wire,,,GND,BB4:L-@31,BB4:L-@32,13
+wire,,,GND,BB4:R-@31,BB4:R-@32,13
+wire,,,GND,BB4:L-@2,BB4:R-@3,61
+wire,,,VCC,PWR:VCC,BB9:L+@1,304
+wire,,,VCC,BB9:L+@31,BB9:L+@32,13
+wire,,,VCC,BB9:R+@31,BB9:R+@32,13
+wire,,,VCC,BB9:L+@2,BB9:R+@2,55
+wire,,,GND,PWR:GND,BB9:L-@1,305
+wire,,,GND,BB9:L-@31,BB9:L-@33,16
+wire,,,GND,BB9:R-@29,BB9:R-@32,19
+wire,,,GND,BB9:L-@2,BB9:R-@2,61
+wire,,,VCC,PWR:VCC,BB5:L+@1,446
+wire,,,VCC,BB5:L+@31,BB5:L+@32,13
+wire,,,VCC,BB5:R+@31,BB5:R+@32,13
+wire,,,VCC,BB5:L+@2,BB5:R+@2,55
+wire,,,GND,PWR:GND,BB5:L-@1,449
+wire,,,GND,BB5:L-@31,BB5:L-@32,13
+wire,,,GND,BB5:R-@31,BB5:R-@32,13
+wire,,,GND,BB5:L-@2,BB5:R-@2,61
+wire,,,VCC,PWR:VCC,BB6:L+@1,368
+wire,,,VCC,BB6:L+@31,BB6:L+@32,13
+wire,,,VCC,BB6:R+@31,BB6:R+@32,13
+wire,,,VCC,BB6:L+@2,BB6:R+@2,55
+wire,,,GND,PWR:GND,BB6:L-@1,371
+wire,,,GND,BB6:L-@31,BB6:L-@32,13
+wire,,,GND,BB6:R-@31,BB6:R-@32,13
+wire,,,GND,BB6:L-@2,BB6:R-@2,61
+wire,,,VCC,PWR:VCC,BB7:L+@1,290
+wire,,,VCC,BB7:L+@31,BB7:L+@32,13
+wire,,,VCC,BB7:R+@31,BB7:R+@32,13
+wire,,,VCC,BB7:L+@2,BB7:R+@2,55
+wire,,,GND,PWR:GND,BB7:L-@1,293
+wire,,,GND,BB7:L-@31,BB7:L-@32,13
+wire,,,GND,BB7:R-@31,BB7:R-@32,13
+wire,,,GND,BB7:L-@2,BB7:R-@2,61
+wire,,,VCC,PWR:VCC,BB8:L+@1,215
+wire,,,VCC,BB8:L+@31,BB8:L+@32,13
+wire,,,VCC,BB8:R+@31,BB8:R+@32,13
+wire,,,VCC,BB8:L+@2,BB8:R+@2,55
+wire,,,GND,PWR:GND,BB8:L-@1,218
+wire,,,GND,BB8:L-@31,BB8:L-@32,13
+wire,,,GND,BB8:R-@31,BB8:R-@32,13
+wire,,,GND,BB8:L-@2,BB8:R-@2,61
+wire,,,GND,PWR:GND,SW:GND,90
+wire,,,GND,PWR:GND,LED:GND,331
+wire,,,VCC,PWR:VCC,SW:VCC,90

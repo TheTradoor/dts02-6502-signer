@@ -31,6 +31,8 @@ The `sim/` directory is a pure-Python (standard library only) simulation used to
   - A test ROM (`sim/firmware.py`, built by `sim/asm.py`) that implements the spec's Section 10.1 boot and reset state machine and a display driver. On a fresh start it runs the test scenario selected by the DIP switches.
 - **Static checks.** An electrical rule check of the netlist, a re-check of the Section 3.3 placement table, BOM quantities against the netlist, a closed-form analog analysis (`sim/analog.py`), and an independent RFC 8032 implementation (`sim/ed25519_ref.py`).
 
+**The breadboard itself.** `sim/layout.py` places every IC per Section 3.3 and every passive part into a specific hole, then routes every net as point-to-point jumpers. The result is `wiring/WIRING.md`, a hole-by-hole build list. The netlist is then rebuilt from physical connectivity alone (5-hole strips, split rails, wires) and checked for shorts, opens, hole budget, harness rules and wire lengths. The simulator can run on this physical netlist (`Bench(physical=...)`), and tests inject typical build mistakes to confirm they're caught.
+
 Some parts are behavioral stand-ins: the RC oscillator, the MCP130 supervisor, the reset RC, the switches and the keys. The simulation is digital. It does not cover ringing, ground bounce, edge rates or supply droop, which still need the oscilloscope checks in Section 11.2 of the spec.
 
 ## Running it
@@ -44,7 +46,8 @@ python3 -m sim run font                     # boot the test ROM; scenario chosen
 python3 -m sim run msg_fault --reset        # lock, fault, then press CPU RESET
 python3 -m sim handoff                      # Section 11.2 bus-handoff measurements
 python3 -m sim race                         # worst-case read-window corner: rev 0.3 vs proposed fix
-python3 -m unittest discover -s tests -v    # full test suite: 48 tests, about 3.5 minutes
+python3 -m sim wiring                       # regenerate wiring/WIRING.md + wiring.csv (hole-level build list) and check it
+python3 -m unittest discover -s tests -v    # full test suite: 66 tests, about 4.5 minutes
 ```
 
 Scenarios for `run`: `idle`, `ram`, `msg_fault`, `res_fault`, `msg_frozen`, `record_ok`, `record_bad`, `mirrors`, `font`.
@@ -62,6 +65,7 @@ Throughput is about 1,500 simulated CPU cycles per second.
 ```
 spec.md            the design under test (rev 0.3, verbatim)
 FINDINGS.md        verification results and recommended changes
+wiring/WIRING.md   generated hole-level breadboard build list (also wiring.csv)
 sim/engine.py      event kernel, nets, contention and timing checks
 sim/parts.py       pin-level IC models
 sim/cpu65c02.py    W65C02S core and bus-timing wrapper
@@ -72,5 +76,6 @@ sim/analog.py      oscillator, reset RC, pull-up, power and display arithmetic
 sim/checks.py      ERC, placement, BOM, waveform measurement helpers
 sim/handoff.py     Section 11.2 measurements
 sim/corners.py     forced worst-case delay corners
+sim/layout.py      hole-level layout, jumper routing, physical connectivity
 tests/             unittest suite
 ```

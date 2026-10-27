@@ -290,6 +290,12 @@ class Core:
             self.a = self.nz(self.a >> 1 | c << 7)
 
 
+def _halted(addr):
+    """Bus activity after an unknown opcode: keep reading the same address."""
+    while True:
+        yield ("R", addr, None, False)
+
+
 ADDR_PINS = list(range(9, 21)) + [22, 23, 24, 25]          # A0..A15
 DATA_PINS = [33, 32, 31, 30, 29, 28, 27, 26]               # D0..D7
 
@@ -387,7 +393,7 @@ class W65C02S(Part):
                 self.halted = str(e)
                 self.sim.violation(t, "cpu-halt", self.name, str(e))
                 nxt = ("R", addr, None, False)
-                self.gen = iter(lambda: ("R", addr, None, False), None)
+                self.gen = _halted(addr)
         self.req = nxt
         nrw, naddr, _, nsync = nxt
         changed = addr ^ naddr

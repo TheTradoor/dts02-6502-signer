@@ -5,6 +5,8 @@
   diag                  run the spec's Section 11.3 diagnostic ROM
   handoff               Section 11.2 bus-handoff measurements
   race                  worst-case read-window corner, rev 0.3 vs six-state fix
+  wiring                generate the hole-level breadboard layout + jumper list
+                        (wiring/WIRING.md, wiring/wiring.csv) and check it
 """
 
 import argparse
@@ -132,11 +134,30 @@ def cmd_race(a):
     return 0
 
 
+def cmd_wiring(a):
+    from . import layout as LY
+    L = LY.generate()
+    path = LY.write_docs(L, a.out)
+    remap, pull, con, cap = LY.physical_netlist(L)
+    problems, targets, info, _ = LY.harness_checks(L)
+    s = LY.summary(L)
+    print(f"wrote {path} and wiring.csv")
+    print(f"  {s['ics']} ICs, {s['parts']} parts, {s['wires']} wires ({s['inter_board_wires']} inter-board)")
+    print(f"  layout errors {len(L.errors)}, shorts {len(con['shorts'])}, opens {len(con['opens'])}")
+    print(f"  harness rules: {problems or 'pass'}")
+    print(f"  length targets: {targets or 'met'}")
+    for k, v in info.items():
+        print(f"  {k}: {v if not isinstance(v, float) else round(v)}")
+    return 1 if (L.errors or con["shorts"] or con["opens"] or problems) else 0
+
+
 def main(argv=None):
     p = argparse.ArgumentParser(prog="python3 -m sim", description=__doc__,
                                 formatter_class=argparse.RawDescriptionHelpFormatter)
     sub = p.add_subparsers(dest="cmd")
     sub.add_parser("check")
+    w = sub.add_parser("wiring")
+    w.add_argument("--out", default="wiring")
     for name in ("run", "diag", "handoff", "race"):
         s = sub.add_parser(name)
         if name == "run":
@@ -151,7 +172,7 @@ def main(argv=None):
         s.add_argument("--vcd", help="write a GTKWave VCD file")
     a = p.parse_args(argv)
     fn = {"check": cmd_check, "run": cmd_run, "diag": cmd_diag, "handoff": cmd_handoff,
-          "race": cmd_race}.get(a.cmd or "check")
+          "race": cmd_race, "wiring": cmd_wiring}.get(a.cmd or "check")
     return fn(a)
 
 

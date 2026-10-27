@@ -8,7 +8,7 @@ The core architecture holds up. The spec's pin tables wire up into a working com
 
 The one substantive issue is that rev 0.3's central claim is not fully guaranteed. Section 6.5 says chip selects change only while every output enable is inactive. At datasheet delay corners there is still a tens-of-nanoseconds race at the trailing edge of the read window (F1). It does not change function, but it does violate the spec's own acceptance limit. Moving one spare flip-flop and one spare gate already on the BOM fixes it, and that fix was verified in simulation.
 
-The other findings are text and number corrections.
+The other findings are text and number corrections, plus two layout issues found by generating the hole-level wiring list (F9, F10).
 
 ## Findings
 
@@ -73,6 +73,45 @@ A worst-case current estimate comes to about 340 mA. That is the 214 mA display 
 ### F8. Info: mirrored lock ports
 
 A3–A7 are not decoded, so a write to any mirror of $7F03 or $7F04 (for example $7F0B) sets a lock. This matches the documented mirroring and fails closed, but a stray firmware store anywhere in $7Fxx can freeze a session (`test_mirrors_and_undriven_ports`).
+
+### F9. Low: the Section 3.2 length targets can't be met with the Section 3.3 placement
+
+The generated hole-level layout (`wiring/WIRING.md`) shows the C_D and P_D length targets are unreachable with the spec's own placement:
+
+- **C_D:** about 280 mm against an "aim below 100 mm" target. The CPU data pins sit at BB1 rows 48–55, while U4/U44 sit at the top of BB10 (rows 2–23) and the C_D pull-ups at BB1 rows 2–11.
+- **P_D:** about 530 mm against a 250 mm target. The P_D pins are spread over BB10, BB2 and BB4, and BB3 sits between BB2 and BB4.
+
+Possible improvements:
+- Put the C_D pull-ups at the CPU pins: C_D drops to 188 mm.
+- Also move U4/U44/U45 level with the CPU data pins: C_D drops to 111 mm.
+- No arrangement tried gets P_D under about 450 mm.
+
+None of this matters electrically. The estimated load is about 70 pF per P_D line and 36 pF per C_D line. That is far inside the functional margin (about 1,000 pF, see F3), and the simulation passes on the netlist derived from the physical layout. Replace the length targets with the capacitance and rise-time criteria proposed in F3.
+
+### F10. Low–medium: the CPU clock net runs to the far sidecar board
+
+U38's clock is the CPU PHI2 net (Section 9.2, "PHI2 for U38 pin 3 is U7 pin 2"), and U38 sits on BB9 at the far end of the north row. In the generated layout PHI2 totals about 440 mm, of which only about 48 mm is the U7→U1 segment. That leaves a roughly 400 mm stub hanging off the net that must give the W65C02S a ≤5 ns edge, which is a ringing and edge-rate risk (Section 5.4).
+
+**Fix (no new parts):** clock U38 from a spare U7 gate. U7 pin 3 = /Q_A (U6 pin 6), and pin 4 = PHI2_FAULT → U38 pin 3. The CPU PHI2 net then stays on BB1, about 48 mm. This was verified in simulation: the fault latch still works with the split clock (`test_phi2_buffer_variant_keeps_fault_latch_working`).
+
+## Breadboard layout verification
+
+`python3 -m sim wiring` generates a hole-for-hole build list from the spec. Chips go exactly where Section 3.3 places them; every passive part gets specific holes or a soldered-panel pad; every net is routed as point-to-point jumpers (669 wires, 285 between boards). The generator then rebuilds the netlist purely from what is physically joined — each 5-hole strip, each rail half (split at row 31/32, with explicit bridge wires) and each wire — and checks it:
+
+- No hole used twice, no strip over 5 holes, no rail half over 25 holes, no part lead spanning over 30 mm.
+- Physical connectivity equals the schematic: 0 shorts, 0 opens, ERC clean.
+- Section 3.4 harness rules hold:
+  - C_D stays on BB1/BB10;
+  - P_D stays on BB10/BB2/BB4;
+  - the BB9 harness is exactly the lock interface plus status returns;
+  - each bank board carries only its own bank signals;
+  - the LED panel return goes straight to the power fixture.
+- The simulator runs the diagnostic ROM, unmapped reads, the lock/fault scenario and the font page on the **physical** netlist, with per-line capacitance taken from the layout. Zero violations.
+- Injected build mistakes are caught:
+  - a jumper one row off (A4/A5 short: CPU crashes in simulation);
+  - an IC seated one row low;
+  - a missing rail bridge (half a board unpowered: ERC);
+  - a pull-up moved to the neighbouring strip. This one is caught by the connectivity check even though normal reads still work; only undriven reads expose it in simulation.
 
 ## Confirmed correct
 

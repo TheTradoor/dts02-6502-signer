@@ -18,7 +18,16 @@ class Part:
         self.sim = sim
         self.name = name
         self.pins = {}
+        remap = sim.pin_remap
+        if remap is not None:
+            # a physical layout may also connect pins the schematic left open
+            pins = dict(pins)
+            for (pname, pin) in remap:
+                if pname == name and pin not in pins:
+                    pins[pin] = None
         for pin, netname in pins.items():
+            if remap is not None:
+                netname = remap.get((name, pin), netname)
             if netname is None:
                 continue
             self.pins[pin] = sim.net(netname)
