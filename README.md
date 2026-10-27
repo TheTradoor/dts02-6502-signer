@@ -47,7 +47,7 @@ python3 -m sim run msg_fault --reset        # lock, fault, then press CPU RESET
 python3 -m sim handoff                      # Section 11.2 bus-handoff measurements
 python3 -m sim race                         # worst-case read-window corner: rev 0.3 vs proposed fix
 python3 -m sim wiring                       # regenerate wiring/WIRING.md + wiring.csv (hole-level build list) and check it
-python3 -m unittest discover -s tests -v    # full test suite: 66 tests, about 4.5 minutes
+python3 -m unittest discover -s tests -v    # full test suite: 73 tests, about 4.5 minutes
 ```
 
 Scenarios for `run`: `idle`, `ram`, `msg_fault`, `res_fault`, `msg_frozen`, `record_ok`, `record_bad`, `mirrors`, `font`.
