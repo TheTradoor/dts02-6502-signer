@@ -86,18 +86,24 @@ class TestHandoff(unittest.TestCase):
     def test_item6_cycle_register_changes_at_phi2_rise(self):
         self.assertEqual(self.r["item6_rwb_cycle_off_edge"], 0)
 
-    def test_one_gpio_strobe_per_store_one_period_early(self):
+    def test_one_gpio_strobe_per_store_two_periods_early(self):
         self.assertEqual(self.r["gpio_writes"], self.r["gpio_rising_edges"])
         lo, hi = self.r["gpio_edge_lead_before_phi2_fall_ns"]
         m = self.r["master_period_ns"]
-        self.assertGreater(lo, 0.9 * m)
-        self.assertLess(hi, 1.1 * m)
+        self.assertGreater(lo, 1.9 * m)
+        self.assertLess(hi, 2.1 * m)
+
+    def test_read_window_closes_a_period_before_phi2_falls(self):
+        self.assertEqual(self.r["item1_rdwin_outside_phi2"], 0)
+        # memories release a period before PHI2 falls (4-period gap); the write
+        # buffer releases at the fall itself, so the minimum gap is 3 periods
+        self.assertGreater(self.r["P_D_min_gap_ns"], 2.9 * self.r["master_period_ns"])
 
 
 class TestReadWindowRace(unittest.TestCase):
-    """Finding F1: at datasheet delay corners the read window outlives the
-    CPU's address hold, so a newly selected device can enable while the old
-    one still drives P_D.  The six-state Johnson variant removes it."""
+    """Finding F1: in rev 0.3, at datasheet delay corners the read window
+    outlives the CPU's address hold, so a newly selected device can enable
+    while the old one still drives P_D.  Rev 0.4's six-state counter removes it."""
 
     def overlaps(self, mutations, corner):
         b = diag_bench(seed=1, mutations=mutations)
@@ -116,14 +122,14 @@ class TestReadWindowRace(unittest.TestCase):
         return b, ov
 
     def test_rev03_overlap_at_corner(self):
-        b, ov = self.overlaps([], corners.read_window_trailing_edge)
+        b, ov = self.overlaps(["rev03"], corners.read_window_trailing_edge)
         self.assertGreater(len(ov), 0)
         self.assertLess(max(d for d, _, _ in ov), 35)                 # tens of ns
         self.assertTrue(all(10 < after < 60 for _, after, _ in ov))   # just after PHI2 falls
         self.assertEqual(b.ram.mem[0x200], 0x96)                      # function unaffected
 
     def test_six_state_fix_has_no_overlap(self):
-        b, ov = self.overlaps(["six_state"], corners.read_window_six_state_fix)
+        b, ov = self.overlaps([], corners.read_window_six_state_fix)
         self.assertEqual(ov, [])
         self.assertEqual(b.violations(), [])
         self.assertEqual(b.ram.mem[0x200], 0x96)

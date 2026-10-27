@@ -3,9 +3,9 @@
 The core is a generator that yields one bus cycle at a time:
     ('R', addr, None, sync)  -> receives the byte read
     ('W', addr, data, False) -> receives None
-Cycle sequences (including dummy reads) follow the W65C02S datasheet for the
-subset of opcodes implemented here; that subset covers every program in
-firmware.py and the spec's diagnostic ROM.  Binary-mode ADC/SBC only.
+Cycle sequences (including dummy reads) follow the W65C02S datasheet.  The
+full instruction set is implemented and checked against Klaus Dormann's
+6502 and 65C02 functional test ROMs (tests/test_cpu_core.py).
 """
 
 from . import timing as T
@@ -20,6 +20,10 @@ class UnknownOpcode(Exception):
 
 
 class Core:
+    """Complete W65C02S instruction set (including Rockwell/WDC bit ops,
+    decimal mode with valid N/Z, and the 65C02 NOP encodings).  Each bus
+    cycle, including dummy reads, is yielded in datasheet order."""
+
     def __init__(self):
         self.a = self.x = self.y = 0
         self.s = 0
@@ -27,6 +31,8 @@ class Core:
         self.pc = 0
         self.fetch_pc = None
         self.instructions = 0
+        self.cycles = 0
+        self.stopped = False
 
     # -- bus primitives --------------------------------------------------
     def rd(self, addr, sync=False):
@@ -42,7 +48,6 @@ class Core:
         return v
 
     def run(self):
-        # reset sequence: two internal cycles, three stack reads, vector
         yield from self.rd(self.pc)
         yield from self.rd(self.pc)
         for _ in range(3):
@@ -55,7 +60,6 @@ class Core:
         while True:
             yield from self.step()
 
-    # -- addressing helpers ----------------------------------------------
     def fetch(self):
         v = yield from self.rd(self.pc)
         self.pc = (self.pc + 1) & 0xFFFF
@@ -66,39 +70,6 @@ class Core:
         hi = yield from self.fetch()
         return lo | hi << 8
 
-    def indexed(self, base, idx, write):
-        ea = (base + idx) & 0xFFFF
-        if write or (ea & 0xFF00) != (base & 0xFF00):
-            yield from self.rd((self.pc - 1) & 0xFFFF)     # 65C02 dummy: last operand byte
-        return ea
-
-    def ind_y(self, write):
-        zp = yield from self.fetch()
-        lo = yield from self.rd(zp)
-        hi = yield from self.rd((zp + 1) & 0xFF)
-        return (yield from self.indexed(lo | hi << 8, self.y, write))
-
-    def operand_ea(self, mode, write=False):
-        if mode == "zp":
-            return (yield from self.fetch())
-        if mode == "abs":
-            return (yield from self.abs_())
-        if mode == "absx":
-            b = yield from self.abs_()
-            return (yield from self.indexed(b, self.x, write))
-        if mode == "absy":
-            b = yield from self.abs_()
-            return (yield from self.indexed(b, self.y, write))
-        if mode == "indy":
-            return (yield from self.ind_y(write))
-        raise ValueError(mode)
-
-    def load(self, mode):
-        if mode == "imm":
-            return (yield from self.fetch())
-        ea = yield from self.operand_ea(mode)
-        return (yield from self.rd(ea))
-
     def push(self, v):
         yield from self.wr(0x100 | self.s, v)
         self.s = (self.s - 1) & 0xFF
@@ -107,105 +78,208 @@ class Core:
         self.s = (self.s + 1) & 0xFF
         return (yield from self.rd(0x100 | self.s))
 
+    # -- effective addresses ----------------------------------------------
+    def ea(self, mode, kind):
+        """kind: 'r' read, 'w' write, 'm' read-modify-write, 'm7' RMW that always
+        takes the indexing cycle (INC/DEC abs,X)."""
+        if mode == "zp":
+            return (yield from self.fetch())
+        if mode in ("zpx", "zpy"):
+            b = yield from self.fetch()
+            yield from self.rd((self.pc - 1) & 0xFFFF)
+            return (b + (self.x if mode == "zpx" else self.y)) & 0xFF
+        if mode == "abs":
+            return (yield from self.abs_())
+        if mode in ("absx", "absy"):
+            b = yield from self.abs_()
+            ea = (b + (self.x if mode == "absx" else self.y)) & 0xFFFF
+            if kind in ("w", "m7") or (ea & 0xFF00) != (b & 0xFF00):
+                yield from self.rd((self.pc - 1) & 0xFFFF)
+            return ea
+        if mode == "indx":
+            z = yield from self.fetch()
+            yield from self.rd((self.pc - 1) & 0xFFFF)
+            z = (z + self.x) & 0xFF
+            lo = yield from self.rd(z)
+            hi = yield from self.rd((z + 1) & 0xFF)
+            return lo | hi << 8
+        if mode == "indy":
+            z = yield from self.fetch()
+            lo = yield from self.rd(z)
+            hi = yield from self.rd((z + 1) & 0xFF)
+            b = lo | hi << 8
+            ea = (b + self.y) & 0xFFFF
+            if kind == "w" or (ea & 0xFF00) != (b & 0xFF00):
+                yield from self.rd((self.pc - 1) & 0xFFFF)
+            return ea
+        if mode == "indz":
+            z = yield from self.fetch()
+            lo = yield from self.rd(z)
+            hi = yield from self.rd((z + 1) & 0xFF)
+            return lo | hi << 8
+        raise ValueError(mode)
+
+    # -- ALU ----------------------------------------------------------------
     def compare(self, reg, v):
-        r = reg - v
         self.p = (self.p & ~C) | (C if reg >= v else 0)
-        self.nz(r)
+        self.nz(reg - v)
 
     def adc(self, v):
-        c = self.p & C
-        r = self.a + v + c
-        ov = (~(self.a ^ v) & (self.a ^ r)) & 0x80
-        self.p = (self.p & ~(C | V)) | (C if r > 0xFF else 0) | (V if ov else 0)
+        a, c = self.a, self.p & C
+        if not self.p & D:
+            r = a + v + c
+            ov = (~(a ^ v) & (a ^ r)) & 0x80
+            self.p = (self.p & ~(C | V)) | (C if r > 0xFF else 0) | (V if ov else 0)
+            self.a = self.nz(r)
+            return False
+        # 65C02 decimal (B. Clark, sequences 1 and 2)
+        al = (a & 0x0F) + (v & 0x0F) + c
+        if al >= 0x0A:
+            al = ((al + 0x06) & 0x0F) + 0x10
+        r = (a & 0xF0) + (v & 0xF0) + al
+        sa = (a & 0xF0) - (0x100 if a & 0x80 else 0)
+        sv = (v & 0xF0) - (0x100 if v & 0x80 else 0)
+        sr = sa + sv + al
+        if r >= 0xA0:
+            r += 0x60
+        self.p = (self.p & ~(C | V)) | (C if r >= 0x100 else 0) | (V if not -128 <= sr <= 127 else 0)
         self.a = self.nz(r)
+        return True
 
-    # -- instruction execution ------------------------------------------
-    LOADS = {0xA9: ("a", "imm"), 0xA5: ("a", "zp"), 0xAD: ("a", "abs"),
-             0xBD: ("a", "absx"), 0xB9: ("a", "absy"), 0xB1: ("a", "indy"),
-             0xA2: ("x", "imm"), 0xA6: ("x", "zp"), 0xAE: ("x", "abs"),
-             0xA0: ("y", "imm"), 0xA4: ("y", "zp"), 0xAC: ("y", "abs")}
-    STORES = {0x85: ("a", "zp"), 0x8D: ("a", "abs"), 0x9D: ("a", "absx"),
-              0x99: ("a", "absy"), 0x91: ("a", "indy"),
-              0x86: ("x", "zp"), 0x8E: ("x", "abs"),
-              0x84: ("y", "zp"), 0x8C: ("y", "abs"),
-              0x64: ("z", "zp"), 0x9C: ("z", "abs")}
-    ALU = {0xC9: ("cmp", "imm"), 0xC5: ("cmp", "zp"), 0xCD: ("cmp", "abs"),
-           0xDD: ("cmp", "absx"), 0xD9: ("cmp", "absy"),
-           0xE0: ("cpx", "imm"), 0xC0: ("cpy", "imm"),
-           0x29: ("and", "imm"), 0x2D: ("and", "abs"),
-           0x09: ("ora", "imm"), 0x0D: ("ora", "abs"),
-           0x49: ("eor", "imm"), 0x4D: ("eor", "abs"), 0x5D: ("eor", "absx"),
-           0x69: ("adc", "imm"), 0xE9: ("sbc", "imm"),
-           0x2C: ("bit", "abs")}
-    IMPLIED = {0xE8, 0xC8, 0xCA, 0x88, 0xAA, 0x8A, 0xA8, 0x98, 0x9A, 0xBA,
-               0x78, 0x58, 0xD8, 0x38, 0x18, 0xEA, 0x0A, 0x4A, 0x2A, 0x6A}
-    BRANCH = {0x10: (N, 0), 0x30: (N, 1), 0x50: (V, 0), 0x70: (V, 1),
-              0x90: (C, 0), 0xB0: (C, 1), 0xD0: (ZF, 0), 0xF0: (ZF, 1), 0x80: None}
+    def sbc(self, v):
+        a, c = self.a, self.p & C
+        r = a - v - (1 - c)
+        ov = ((a ^ v) & (a ^ r)) & 0x80
+        self.p = (self.p & ~(C | V)) | (C if r >= 0 else 0) | (V if ov else 0)
+        if not self.p & D:
+            self.a = self.nz(r)
+            return False
+        al = (a & 0x0F) - (v & 0x0F) + c - 1
+        if r < 0:
+            r -= 0x60
+        if al < 0:
+            r -= 0x06
+        self.a = self.nz(r)
+        return True
 
+    def shift(self, op, v):
+        if op == "ASL":
+            self.p = (self.p & ~C) | (C if v & 0x80 else 0)
+            return self.nz(v << 1)
+        if op == "LSR":
+            self.p = (self.p & ~C) | (v & 1)
+            return self.nz(v >> 1)
+        if op == "ROL":
+            c = self.p & C
+            self.p = (self.p & ~C) | (C if v & 0x80 else 0)
+            return self.nz(v << 1 | c)
+        if op == "ROR":
+            c = self.p & C
+            self.p = (self.p & ~C) | (v & 1)
+            return self.nz(v >> 1 | c << 7)
+        if op == "INC":
+            return self.nz(v + 1)
+        if op == "DEC":
+            return self.nz(v - 1)
+        if op == "TSB":
+            self.p = (self.p & ~ZF) | (ZF if (self.a & v) == 0 else 0)
+            return (v | self.a) & 0xFF
+        if op == "TRB":
+            self.p = (self.p & ~ZF) | (ZF if (self.a & v) == 0 else 0)
+            return v & ~self.a & 0xFF
+        raise ValueError(op)
+
+    # -- dispatch -------------------------------------------------------------
     def step(self):
         self.fetch_pc = self.pc
         op = yield from self.rd(self.pc, True)
         self.pc = (self.pc + 1) & 0xFFFF
         self.instructions += 1
-
-        if op in self.LOADS:
-            reg, mode = self.LOADS[op]
-            v = yield from self.load(mode)
-            setattr(self, reg, self.nz(v))
-        elif op in self.STORES:
-            reg, mode = self.STORES[op]
-            ea = yield from self.operand_ea(mode, write=True)
-            yield from self.wr(ea, 0 if reg == "z" else getattr(self, reg))
-        elif op in self.ALU:
-            fn, mode = self.ALU[op]
-            v = yield from self.load(mode)
-            if fn == "cmp":
-                self.compare(self.a, v)
-            elif fn == "cpx":
-                self.compare(self.x, v)
-            elif fn == "cpy":
-                self.compare(self.y, v)
-            elif fn == "and":
+        mnem, mode = OPTABLE[op]
+        if mnem in READ_OPS:
+            if mode == "imm":
+                v = yield from self.fetch()
+            else:
+                ea = yield from self.ea(mode, "r")
+                v = yield from self.rd(ea)
+            if mnem == "LDA":
+                self.a = self.nz(v)
+            elif mnem == "LDX":
+                self.x = self.nz(v)
+            elif mnem == "LDY":
+                self.y = self.nz(v)
+            elif mnem == "AND":
                 self.a = self.nz(self.a & v)
-            elif fn == "ora":
+            elif mnem == "ORA":
                 self.a = self.nz(self.a | v)
-            elif fn == "eor":
+            elif mnem == "EOR":
                 self.a = self.nz(self.a ^ v)
-            elif fn == "adc":
-                self.adc(v)
-            elif fn == "sbc":
-                self.adc(v ^ 0xFF)
-            elif fn == "bit":
-                self.p = (self.p & ~(N | V | ZF)) | (v & (N | V)) | (ZF if (self.a & v) == 0 else 0)
-        elif op in self.IMPLIED:
-            yield from self.rd(self.pc)
-            self.implied(op)
-        elif op in self.BRANCH:
-            off = yield from self.fetch()
-            cond = self.BRANCH[op]
-            taken = cond is None or (bool(self.p & cond[0]) == bool(cond[1]))
-            if taken:
-                yield from self.rd(self.pc)
-                tgt = (self.pc + (off - 256 if off & 0x80 else off)) & 0xFFFF
-                if (tgt & 0xFF00) != (self.pc & 0xFF00):
-                    yield from self.rd(self.pc)
-                self.pc = tgt
-        elif op in (0xE6, 0xC6):            # INC/DEC zp
-            ea = yield from self.fetch()
+            elif mnem == "CMP":
+                self.compare(self.a, v)
+            elif mnem == "CPX":
+                self.compare(self.x, v)
+            elif mnem == "CPY":
+                self.compare(self.y, v)
+            elif mnem == "BIT":
+                if mode == "imm":
+                    self.p = (self.p & ~ZF) | (ZF if (self.a & v) == 0 else 0)
+                else:
+                    self.p = (self.p & ~(N | V | ZF)) | (v & (N | V)) | (ZF if (self.a & v) == 0 else 0)
+            elif mnem in ("ADC", "SBC"):
+                dec = self.adc(v) if mnem == "ADC" else self.sbc(v)
+                if dec:
+                    yield from self.rd((self.pc - 1) & 0xFFFF)   # decimal-mode extra cycle
+        elif mnem in WRITE_OPS:
+            ea = yield from self.ea(mode, "w")
+            v = {"STA": self.a, "STX": self.x, "STY": self.y, "STZ": 0}[mnem]
+            yield from self.wr(ea, v)
+        elif mnem in RMW_OPS and mode != "acc":
+            kind = "m7" if (mnem in ("INC", "DEC") and mode == "absx") else "m"
+            ea = yield from self.ea(mode, kind)
             v = yield from self.rd(ea)
             yield from self.rd(ea)
-            v = (v + (1 if op == 0xE6 else -1)) & 0xFF
-            yield from self.wr(ea, self.nz(v))
-        elif op == 0x4C:                     # JMP abs
-            self.pc = yield from self.abs_()
-        elif op == 0x20:                     # JSR
+            yield from self.wr(ea, self.shift(mnem, v))
+        elif mode == "acc":
+            yield from self.rd(self.pc)
+            self.a = self.shift(mnem, self.a)
+        elif mnem in BIT_OPS:                     # RMBn / SMBn
+            zp = yield from self.fetch()
+            v = yield from self.rd(zp)
+            yield from self.rd(zp)
+            bit = 1 << int(mnem[3])
+            yield from self.wr(zp, (v | bit) if mnem[0] == "S" else (v & ~bit))
+        elif mnem in BB_OPS:                      # BBRn / BBSn zp, rel
+            zp = yield from self.fetch()
+            v = yield from self.rd(zp)
+            yield from self.rd(zp)
+            off = yield from self.fetch()
+            bit = (v >> int(mnem[3])) & 1
+            if bit == (1 if mnem[2] == "S" else 0):
+                yield from self.branch_to(off)
+        elif mnem in BRANCHES:
+            off = yield from self.fetch()
+            cond = BRANCHES[mnem]
+            if cond is None or bool(self.p & cond[0]) == bool(cond[1]):
+                yield from self.branch_to(off)
+        elif mnem == "JMP":
+            if mode == "abs":
+                self.pc = yield from self.abs_()
+            else:
+                b = yield from self.abs_()
+                yield from self.rd((self.pc - 1) & 0xFFFF)
+                if mode == "indabsx":
+                    b = (b + self.x) & 0xFFFF
+                lo = yield from self.rd(b)
+                hi = yield from self.rd((b + 1) & 0xFFFF)
+                self.pc = lo | hi << 8
+        elif mnem == "JSR":
             lo = yield from self.fetch()
             yield from self.rd(0x100 | self.s)
             yield from self.push(self.pc >> 8)
             yield from self.push(self.pc & 0xFF)
             hi = yield from self.rd(self.pc)
             self.pc = lo | hi << 8
-        elif op == 0x60:                     # RTS
+        elif mnem == "RTS":
             yield from self.rd(self.pc)
             yield from self.rd(0x100 | self.s)
             lo = yield from self.pull()
@@ -213,18 +287,14 @@ class Core:
             self.pc = lo | hi << 8
             yield from self.rd(self.pc)
             self.pc = (self.pc + 1) & 0xFFFF
-        elif op in (0x48, 0x08):             # PHA / PHP
-            yield from self.rd(self.pc)
-            yield from self.push(self.a if op == 0x48 else self.p | B | U)
-        elif op in (0x68, 0x28):             # PLA / PLP
+        elif mnem == "RTI":
             yield from self.rd(self.pc)
             yield from self.rd(0x100 | self.s)
-            v = yield from self.pull()
-            if op == 0x68:
-                self.a = self.nz(v)
-            else:
-                self.p = v | U
-        elif op == 0x00:                     # BRK
+            self.p = (yield from self.pull()) | U | B
+            lo = yield from self.pull()
+            hi = yield from self.pull()
+            self.pc = lo | hi << 8
+        elif mnem == "BRK":
             yield from self.fetch()
             yield from self.push(self.pc >> 8)
             yield from self.push(self.pc & 0xFF)
@@ -233,61 +303,161 @@ class Core:
             hi = yield from self.rd(0xFFFF)
             self.p = (self.p | I) & ~D
             self.pc = lo | hi << 8
-        elif op == 0x40:                     # RTI
+        elif mnem in ("PHA", "PHP", "PHX", "PHY"):
+            yield from self.rd(self.pc)
+            v = {"PHA": self.a, "PHP": self.p | B | U, "PHX": self.x, "PHY": self.y}[mnem]
+            yield from self.push(v)
+        elif mnem in ("PLA", "PLP", "PLX", "PLY"):
             yield from self.rd(self.pc)
             yield from self.rd(0x100 | self.s)
-            self.p = (yield from self.pull()) | U
-            lo = yield from self.pull()
-            hi = yield from self.pull()
-            self.pc = lo | hi << 8
-        else:
-            raise UnknownOpcode(f"opcode ${op:02X} at ${self.fetch_pc:04X}")
+            v = yield from self.pull()
+            if mnem == "PLP":
+                self.p = v | U | B
+            elif mnem == "PLA":
+                self.a = self.nz(v)
+            elif mnem == "PLX":
+                self.x = self.nz(v)
+            else:
+                self.y = self.nz(v)
+        elif mnem == "NOP":
+            n_bytes, n_cyc = NOP_SHAPE[op]
+            for _ in range(n_bytes - 1):
+                yield from self.fetch()
+            for _ in range(n_cyc - n_bytes):
+                yield from self.rd((self.pc - 1) & 0xFFFF)
+        elif mnem in ("WAI", "STP"):
+            self.stopped = True
+            raise UnknownOpcode(f"{mnem} at ${self.fetch_pc:04X}")
+        else:                                       # implied, 2 cycles
+            yield from self.rd(self.pc)
+            self.implied(mnem)
 
-    def implied(self, op):
-        if op == 0xE8:
+    def branch_to(self, off):
+        yield from self.rd(self.pc)
+        tgt = (self.pc + (off - 256 if off & 0x80 else off)) & 0xFFFF
+        if (tgt & 0xFF00) != (self.pc & 0xFF00):
+            yield from self.rd(self.pc)
+        self.pc = tgt
+
+    def implied(self, m):
+        if m == "INX":
             self.x = self.nz(self.x + 1)
-        elif op == 0xC8:
+        elif m == "INY":
             self.y = self.nz(self.y + 1)
-        elif op == 0xCA:
+        elif m == "DEX":
             self.x = self.nz(self.x - 1)
-        elif op == 0x88:
+        elif m == "DEY":
             self.y = self.nz(self.y - 1)
-        elif op == 0xAA:
+        elif m == "TAX":
             self.x = self.nz(self.a)
-        elif op == 0x8A:
+        elif m == "TXA":
             self.a = self.nz(self.x)
-        elif op == 0xA8:
+        elif m == "TAY":
             self.y = self.nz(self.a)
-        elif op == 0x98:
+        elif m == "TYA":
             self.a = self.nz(self.y)
-        elif op == 0x9A:
+        elif m == "TXS":
             self.s = self.x
-        elif op == 0xBA:
+        elif m == "TSX":
             self.x = self.nz(self.s)
-        elif op == 0x78:
+        elif m == "SEI":
             self.p |= I
-        elif op == 0x58:
+        elif m == "CLI":
             self.p &= ~I
-        elif op == 0xD8:
+        elif m == "SED":
+            self.p |= D
+        elif m == "CLD":
             self.p &= ~D
-        elif op == 0x38:
+        elif m == "SEC":
             self.p |= C
-        elif op == 0x18:
+        elif m == "CLC":
             self.p &= ~C
-        elif op == 0x0A:
-            self.p = (self.p & ~C) | (C if self.a & 0x80 else 0)
-            self.a = self.nz(self.a << 1)
-        elif op == 0x4A:
-            self.p = (self.p & ~C) | (self.a & 1)
-            self.a = self.nz(self.a >> 1)
-        elif op == 0x2A:
-            c = self.p & C
-            self.p = (self.p & ~C) | (C if self.a & 0x80 else 0)
-            self.a = self.nz(self.a << 1 | c)
-        elif op == 0x6A:
-            c = self.p & C
-            self.p = (self.p & ~C) | (self.a & 1)
-            self.a = self.nz(self.a >> 1 | c << 7)
+        elif m == "CLV":
+            self.p &= ~V
+        elif m == "INA":
+            self.a = self.nz(self.a + 1)
+        elif m == "DEA":
+            self.a = self.nz(self.a - 1)
+        else:
+            raise UnknownOpcode(m)
+
+
+READ_OPS = {"LDA", "LDX", "LDY", "AND", "ORA", "EOR", "CMP", "CPX", "CPY", "BIT", "ADC", "SBC"}
+WRITE_OPS = {"STA", "STX", "STY", "STZ"}
+RMW_OPS = {"ASL", "LSR", "ROL", "ROR", "INC", "DEC", "TSB", "TRB"}
+BIT_OPS = {f"{k}MB{i}" for k in "RS" for i in range(8)}
+BB_OPS = {f"BB{k}{i}" for k in "RS" for i in range(8)}
+BRANCHES = {"BPL": (N, 0), "BMI": (N, 1), "BVC": (V, 0), "BVS": (V, 1), "BCC": (C, 0),
+            "BCS": (C, 1), "BNE": (ZF, 0), "BEQ": (ZF, 1), "BRA": None}
+
+
+def _build_optable():
+    t = {}
+    groups = {
+        "ORA": {0x09: "imm", 0x05: "zp", 0x15: "zpx", 0x0D: "abs", 0x1D: "absx", 0x19: "absy", 0x01: "indx", 0x11: "indy", 0x12: "indz"},
+        "AND": {0x29: "imm", 0x25: "zp", 0x35: "zpx", 0x2D: "abs", 0x3D: "absx", 0x39: "absy", 0x21: "indx", 0x31: "indy", 0x32: "indz"},
+        "EOR": {0x49: "imm", 0x45: "zp", 0x55: "zpx", 0x4D: "abs", 0x5D: "absx", 0x59: "absy", 0x41: "indx", 0x51: "indy", 0x52: "indz"},
+        "ADC": {0x69: "imm", 0x65: "zp", 0x75: "zpx", 0x6D: "abs", 0x7D: "absx", 0x79: "absy", 0x61: "indx", 0x71: "indy", 0x72: "indz"},
+        "STA": {0x85: "zp", 0x95: "zpx", 0x8D: "abs", 0x9D: "absx", 0x99: "absy", 0x81: "indx", 0x91: "indy", 0x92: "indz"},
+        "LDA": {0xA9: "imm", 0xA5: "zp", 0xB5: "zpx", 0xAD: "abs", 0xBD: "absx", 0xB9: "absy", 0xA1: "indx", 0xB1: "indy", 0xB2: "indz"},
+        "CMP": {0xC9: "imm", 0xC5: "zp", 0xD5: "zpx", 0xCD: "abs", 0xDD: "absx", 0xD9: "absy", 0xC1: "indx", 0xD1: "indy", 0xD2: "indz"},
+        "SBC": {0xE9: "imm", 0xE5: "zp", 0xF5: "zpx", 0xED: "abs", 0xFD: "absx", 0xF9: "absy", 0xE1: "indx", 0xF1: "indy", 0xF2: "indz"},
+        "ASL": {0x0A: "acc", 0x06: "zp", 0x16: "zpx", 0x0E: "abs", 0x1E: "absx"},
+        "ROL": {0x2A: "acc", 0x26: "zp", 0x36: "zpx", 0x2E: "abs", 0x3E: "absx"},
+        "LSR": {0x4A: "acc", 0x46: "zp", 0x56: "zpx", 0x4E: "abs", 0x5E: "absx"},
+        "ROR": {0x6A: "acc", 0x66: "zp", 0x76: "zpx", 0x6E: "abs", 0x7E: "absx"},
+        "STX": {0x86: "zp", 0x96: "zpy", 0x8E: "abs"},
+        "LDX": {0xA2: "imm", 0xA6: "zp", 0xB6: "zpy", 0xAE: "abs", 0xBE: "absy"},
+        "DEC": {0xC6: "zp", 0xD6: "zpx", 0xCE: "abs", 0xDE: "absx"},
+        "INC": {0xE6: "zp", 0xF6: "zpx", 0xEE: "abs", 0xFE: "absx"},
+        "STY": {0x84: "zp", 0x94: "zpx", 0x8C: "abs"},
+        "LDY": {0xA0: "imm", 0xA4: "zp", 0xB4: "zpx", 0xAC: "abs", 0xBC: "absx"},
+        "CPY": {0xC0: "imm", 0xC4: "zp", 0xCC: "abs"},
+        "CPX": {0xE0: "imm", 0xE4: "zp", 0xEC: "abs"},
+        "BIT": {0x89: "imm", 0x24: "zp", 0x34: "zpx", 0x2C: "abs", 0x3C: "absx"},
+        "STZ": {0x64: "zp", 0x74: "zpx", 0x9C: "abs", 0x9E: "absx"},
+        "TSB": {0x04: "zp", 0x0C: "abs"},
+        "TRB": {0x14: "zp", 0x1C: "abs"},
+        "JMP": {0x4C: "abs", 0x6C: "ind", 0x7C: "indabsx"},
+        "JSR": {0x20: "abs"},
+    }
+    for m, ops in groups.items():
+        for op, mode in ops.items():
+            t[op] = (m, mode)
+    simple = {0x00: "BRK", 0x40: "RTI", 0x60: "RTS", 0x08: "PHP", 0x28: "PLP", 0x48: "PHA",
+              0x68: "PLA", 0xDA: "PHX", 0xFA: "PLX", 0x5A: "PHY", 0x7A: "PLY", 0x18: "CLC",
+              0x38: "SEC", 0x58: "CLI", 0x78: "SEI", 0xB8: "CLV", 0xD8: "CLD", 0xF8: "SED",
+              0xAA: "TAX", 0x8A: "TXA", 0xA8: "TAY", 0x98: "TYA", 0x9A: "TXS", 0xBA: "TSX",
+              0xE8: "INX", 0xC8: "INY", 0xCA: "DEX", 0x88: "DEY", 0x1A: "INA", 0x3A: "DEA",
+              0xEA: "NOP", 0xCB: "WAI", 0xDB: "STP"}
+    for op, m in simple.items():
+        t[op] = (m, "imp")
+    for m, op in {"BPL": 0x10, "BMI": 0x30, "BVC": 0x50, "BVS": 0x70, "BCC": 0x90,
+                  "BCS": 0xB0, "BNE": 0xD0, "BEQ": 0xF0, "BRA": 0x80}.items():
+        t[op] = (m, "rel")
+    for i in range(8):
+        t[0x07 + 0x10 * i] = (f"RMB{i}", "zp")
+        t[0x87 + 0x10 * i] = (f"SMB{i}", "zp")
+        t[0x0F + 0x10 * i] = (f"BBR{i}", "zprel")
+        t[0x8F + 0x10 * i] = (f"BBS{i}", "zprel")
+    for op in range(256):
+        if op not in t:
+            t[op] = ("NOP", "imp")
+    return t
+
+
+OPTABLE = _build_optable()
+# 65C02 undefined opcodes are NOPs of fixed length / duration (bytes, cycles)
+NOP_SHAPE = {op: (1, 1) for op in range(256)}
+NOP_SHAPE[0xEA] = (1, 2)
+for _op in (0x02, 0x22, 0x42, 0x62, 0x82, 0xC2, 0xE2):
+    NOP_SHAPE[_op] = (2, 2)
+NOP_SHAPE[0x44] = (2, 3)
+for _op in (0x54, 0xD4, 0xF4):
+    NOP_SHAPE[_op] = (2, 4)
+NOP_SHAPE[0x5C] = (3, 8)
+for _op in (0xDC, 0xFC):
+    NOP_SHAPE[_op] = (3, 4)
 
 
 def _halted(addr):

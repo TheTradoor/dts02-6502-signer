@@ -2,14 +2,22 @@
 
 Breadboard specification, component list, and wiring plan
 
-Revision 0.3 · 26 October 2026
-Status: unbuilt engineering proposal with pin-level breadboard wiring. Revision 0.3 resolves the findings of the two revision 0.2 reviews: bus-handoff contention, bus pull-up budget, reset/recovery behavior, the Squads transaction-index race, clock component values, supervisor margin, the battery fixture, and the RFC 8032 acceptance vector. No board has been assembled and no timing has been measured.
+Revision 0.4 · 27 October 2026
+Status: unbuilt engineering proposal with pin-level breadboard wiring. Revision 0.4 applies the findings of the revision 0.3 simulation (FINDINGS.md): the read-window trailing-edge race, the PHI2 stub to the fault latch, the oscillator spread, and several text corrections. A generated hole-level wiring list (wiring/WIRING.md) accompanies this revision. No board has been assembled and no timing has been measured.
 
 This is a self-contained specification for a small computer using a modern 6502-family CPU, ordinary SRAM, fixed program ROM, manual input, and raw LED output. Its intended job is plain Ed25519 signing of Solana message bytes, as a distinct third signing device in a 2-of-3 Squads setup.
 
 The design below supplies a ten-breadboard placement map, a component list, named nets, DIP pin tables, clock/reset circuits, a bus-handoff timing model, and staged bring-up instructions. The front panel and power fixture use passive perfboard. No complete 6502 Ed25519 firmware is supplied. The included diagnostic ROM generator exercises the bus only.
 
 Build this revision with public test keys. It implements a computer, manual I/O, and experimental memory locks. The independent wipe sequencer, CPU power-domain isolation, restricted post-wipe output controller, complete signing firmware, and Solana/Squads authorization parser remain engineering work. They are explicitly listed in Section 12. The solderless prototype is not a finished custody device.
+
+## Changes from revision 0.3
+
+- **Six-state phase generator.** The spare flip-flop of U45 becomes a third Johnson stage (Q_C). A CPU cycle is now six master periods: PHI2 is high for EARLY, MID and LATE. The read window is EARLY+MID and closes one full master period before PHI2 falls, so the CPU's address change at the PHI2 fall can no longer meet an active output enable. Revision 0.3 depended on an HCT00 delay beating the CPU address hold, which failed by up to about 15 ns at datasheet corners and produced up to about 28 ns of P_D overlap in simulation. RD_WIN_N moves from U10 gate 3 to U18 gate 2 (spare three-input NAND); U10 gate 3 is unused. No parts are added (Sections 5.5, 6.4, 6.5, 7).
+- **Separate fault-latch clock.** U38 is clocked by PHI2_FAULT from a spare U7 gate instead of the CPU PHI2 net, which no longer leaves BB1. Revision 0.3 hung a roughly 400 mm stub on the clock that must reach the CPU with a ≤5 ns edge (Sections 5.4, 9.2).
+- **Oscillator capacitor 330 pF → 560 pF.** Over the SN74HC14 threshold range, 10 kΩ/330 pF spans about 127–890 kHz, not 300–380 kHz. 560 pF spans about 76–530 kHz master, 13–88 kHz CPU, which keeps the 100 kHz CPU ceiling at every corner (Section 5.3).
+- **Acceptance criteria re-based.** Bus rise-time limits now follow the HCT input-transition limit rather than a 60 pF budget that a ten-board breadboard cannot meet. Wire-length targets are replaced by capacitance (Sections 3.2, 6.5, 11.2).
+- **Text corrections.** Reset-release delay range, regulator current, the boot sequence's invalid `STA #$00`, and the stack self-test scope in the recovery states (Sections 5.1, 5.3, 10.1).
 
 ## Changes from revision 0.2
 
@@ -77,17 +85,17 @@ These are specific candidate parts/packages, not a claim that every distributor 
 | U3 | 1 | Microchip AT27C256R-45PU / -70PU | PDIP-28, 0.6 in | 32 KiB OTP ROM; buy at least 3 blanks for development |
 | U4 | 1 | TI SN74HCT541N | PDIP-20 | WBUF: CPU→peripheral write buffer, enabled only in PHI2-high write cycles |
 | U5, U17 | 2 | TI SN74HC14N | PDIP-14 | Clock/reset Schmitt gates; button conditioning |
-| U6, U37, U38, U45 | 4 | TI SN74HCT74N | PDIP-14 | PHASE Johnson counter; two lock/fault packages; cycle-direction register |
-| U7 | 1 | TI SN74AC14N | PDIP-14 | Fast CPU clock buffer; actual edge qualification required |
+| U6, U37, U38, U45 | 4 | TI SN74HCT74N | PDIP-14 | PHASE Johnson counter; two lock/fault packages; cycle-direction register and third Johnson stage |
+| U7 | 1 | TI SN74AC14N | PDIP-14 | Fast CPU clock buffer and separate fault-latch clock; actual edge qualification required |
 | U8 | 1 | TI SN74HCT04N | PDIP-14 | INV: bus/address inversions |
 | U9 | 1 | TI CD74HC30E | PDIP-14 | PAGE: eight-input NAND for $7Fxx decode |
-| U10 | 1 | TI SN74HCT00N | PDIP-14 | NAND: RAM select, write window, read window, hold term |
+| U10 | 1 | TI SN74HCT00N | PDIP-14 | NAND: RAM select, write window, hold term |
 | U11, U40 | 2 | TI SN74HCT08N | PDIP-14 | AND: timing/reset, latch output enable, protection predicates |
 | U12, U41 | 2 | TI SN74HCT32N | PDIP-14 | OR: GPIO strobe, RAM write enable, security latches |
 | U13 | 1 | TI SN74HCT138N | PDIP-16 | PORT: eight I/O selects |
 | U14, U15 | 2 | TI SN74HCT541N | PDIP-20 | Byte/key input buffers; enables = port select AND read window |
 | U16 | 1 | TI SN74HCT273N | PDIP-20 | Eight-bit GPIO/display-control latch |
-| U18 | 1 | TI CD74HC10E | PDIP-14 | Three-input NAND for default/fault display blanking |
+| U18 | 1 | TI CD74HC10E | PDIP-14 | Three-input NAND: default/fault display blanking and the read window |
 | U19, U20 | 2 | TI SN74HCT244N | PDIP-20 | Display fanout |
 | U21–U36 | 16 | TI SN74HC595N | PDIP-16 | One static segment register per display digit |
 | U39 | 1 | TI CD74HCT157E | PDIP-16 | Select message/result bank lock |
@@ -113,7 +121,7 @@ Quantities below cover the populated ten-board design. Buy modest spares. The LE
 | 1 | 1 kΩ, **1/4 W** | Permanent 5 V rail bleeder/minimum-load resistor |
 | 50 | 100 nF ceramic, ≥16 V, short leads | 43 DIP bypasses, supervisor bypass, regulator output bypass, five key RCs |
 | 10 | 10 µF electrolytic, ≥10 V | One local bulk capacitor per breadboard |
-| 1 | 330 pF C0G/NP0, ≥16 V | Oscillator capacitor (Section 5.3) |
+| 1 | 560 pF C0G/NP0, ≥16 V | Oscillator capacitor (Section 5.3) |
 | 1 | 1 µF, ≥10 V | CPU reset-release RC capacitor |
 | 1 | 330 nF, ≥25 V | Regulator input bypass |
 | 1 | 100 µF electrolytic, ≥25 V | Battery/regulator input bulk |
@@ -134,7 +142,7 @@ Quantities below cover the populated ten-board design. Buy modest spares. The LE
 | As needed | 22 AWG solid insulated hookup wire, ground returns, labels | Point-to-point wiring and labelled harnesses |
 | 3 blanks recommended | AT27C256R OTP devices | One installed at a time; development consumes blanks |
 
-Development tools: a current-limited 5 V supply, DMM, EPROM programmer that explicitly supports the chosen AT27C256R, independent ROM readback, and an oscilloscope with enough bandwidth and a suitable probe to assess a 5 ns clock edge and the sub-100 ns bus handoffs of Section 11.2. A logic analyzer helps decode the bus but cannot replace analog edge/contention measurements. The tools are external equipment and are not components of the disconnected signer.
+Development tools: a current-limited 5 V supply, DMM, EPROM programmer that explicitly supports the chosen AT27C256R, independent ROM readback, and an oscilloscope with enough bandwidth and a suitable probe to assess a 5 ns clock edge and the bus handoffs of Section 11.2. A logic analyzer helps decode the bus but cannot replace analog edge/contention measurements. The tools are external equipment and are not components of the disconnected signer.
 
 ## 3. Physical breadboard layout
 
@@ -161,7 +169,7 @@ Orient each breadboard with its long dimension north–south. The arrangement be
 | South row | BB5 digits 0–3 | BB6 digits 4–7 | BB7 digits 8–11 | BB8 digits 12–15 | Switch and button panel | Fused power fixture |
 | Front edge | LED panel D0–D15, byte group labels | | | | | |
 
-Keep U7-to-U1 PHI2 wiring short, preferably under 50 mm, with a nearby ground return. C_D runs only between BB1 and BB10 (aim below 100 mm). P_D runs from BB10 to BB2 and BB4; keep each P_D line below 250 mm total and within the 60 pF budget of Section 6.5. These routing targets do not replace waveform measurements. Do not run display return current through the CPU ground jumper.
+Keep U7-to-U1 PHI2 wiring short, preferably under 50 mm, with a nearby ground return; the CPU PHI2 net stays on BB1. C_D runs only between BB1 and BB10 and P_D from BB10 to BB2 and BB4. With this placement the generated wiring list gives roughly 280 mm per C_D line and 450–550 mm per P_D line, about 36 pF and 70 pF; the binding limits are the capacitance criteria of Section 6.5, not wire length. These estimates do not replace waveform measurements. Do not run display return current through the CPU ground jumper.
 
 ### 3.3 Exact DIP placement
 
@@ -221,9 +229,9 @@ BB1 rows 2–11 (freed by moving U4) carry the eight 10 kΩ C_D pull-ups next to
 |---|---|---|
 | CPU address | A0–A15, GND | Address labels at both ends; never infer order from wire color alone |
 | CPU data | C_D0–C_D7, GND | Only U1 pins 26–33, U4 inputs, U44 outputs and the 10 kΩ pull-ups connect here |
-| Peripheral data | P_D0–P_D7, GND | U4 outputs, U44 inputs, RAM, ROM, U14/U15 outputs, U16 inputs, 4.7 kΩ pull-ups; ≤60 pF per line |
-| Core control | RWB, nRWB, PHI2, Q_A, /Q_A, Q_B, EARLY, RD_WIN_N, RWB_CYCLE, HOLD_N, LATCH_OE_N, COLD_CLEAR_N, CPU_RESET_N | Keep clocks and window strobes away from LED-current loops |
-| Lock interface | A13, A14, RAM_SELECT, nRWB, PHI2, reset nets, Y3_N, Y4_N, WR_PHASE_N | Add WRITE_BLOCK and status returns |
+| Peripheral data | P_D0–P_D7, GND | U4 outputs, U44 inputs, RAM, ROM, U14/U15 outputs, U16 inputs, 4.7 kΩ pull-ups; rise-time limit of Section 11.2 item 7 |
+| Core control | RWB, nRWB, PHI2, Q_A, /Q_A, Q_B, /Q_B, Q_C, /Q_C, EARLY, RD_WIN_N, RWB_CYCLE, HOLD_N, LATCH_OE_N, COLD_CLEAR_N, CPU_RESET_N | Keep clocks and window strobes away from LED-current loops |
+| Lock interface | A13, A14, RAM_SELECT, nRWB, PHI2_FAULT, reset nets, Y3_N, Y4_N, WR_PHASE_N | Add WRITE_BLOCK and status returns |
 | Each LED bank | DATA, SRCLK, RCLK, OE_N, SRCLR_N, +5 V, GND | Four independently buffered clock banks; no serial chaining between banks |
 
 Red is +5 V and black is GND throughout. Mark the battery input separately so it cannot be mistaken for the regulated logic rail. Do not attach the 12 V battery rail to a 5 V breadboard rail.
@@ -234,7 +242,7 @@ Red is +5 V and black is GND throughout. Mark the battery input separately so it
 
 _N means active low. RWB=1 means CPU read; nRWB=!RWB. C_D is the CPU-side data bus (U1, U4 inputs, U44 outputs) and P_D is the peripheral data bus (U4 outputs, U44 inputs, RAM, ROM, U14/U15 outputs, U16 inputs). Never join C_D directly to P_D. RAM/ROM read highs can be as low as 2.4 V under their specified loads, while the CPU requires CMOS input levels; U44 (HCT inputs, CMOS outputs) provides the threshold translation on reads and U4 provides buffering on writes.
 
-The four Johnson states are named PRE (Q_A=0, Q_B=0: PHI2 low, second half of the low phase), EARLY (1,0: PHI2 high, first half), LATE (1,1: PHI2 high, second half) and POST (0,1: PHI2 low, first half after the fall). RWB_CYCLE is RWB registered at the PRE→EARLY edge; it holds the current cycle's direction through LATE, POST and the following PRE.
+The six Johnson states (Q_A Q_B Q_C) are PRE (000: PHI2 low, last third of the low phase), EARLY (100: PHI2 high, first third), MID (110: PHI2 high, second third), LATE (111: PHI2 high, last third), POST (011: PHI2 low, first third after the fall) and GAP (001: PHI2 low, middle third). RWB_CYCLE is RWB registered at the PRE→EARLY edge; it holds the current cycle's direction until the next PRE→EARLY edge.
 
 The local core aliases used in wiring tables are CPU=U1, RAM=U2, ROM=U3, WBUF=U4, PHASE=U6, INV=U8, PAGE=U9, NAND=U10, AND=U11, OR=U12, PORT=U13, RLATCH=U44 and CYC=U45.
 
@@ -282,7 +290,7 @@ Place 330 nF and 100 µF from regulator input to GND, and 100 nF and 47 µF from
 
 Keep the regulator input at least 7.5 V after the reverse-polarity diode for the specified operating range. Eight alkaline cells read about 12.0–12.8 V fresh and reach the 7.9 V pack floor (7.5 V after the diode) at about 0.99 V per cell, which is close to end of life for alkaline chemistry; the six-cell fixture of revision 0.2 reached the same floor at 1.3 V per cell with roughly half of its capacity unused. Eight NiMH cells (9.6–11 V) are acceptable. Replace cells when the loaded pack voltage falls below 7.9 V.
 
-Worst-case regulator dissipation is (12.8 − 0.35 − 5.0) V × 0.30 A ≈ 2.2 W plus quiescent loss. With a ≤15 °C/W heatsink and about 5 °C/W junction-to-case, that is roughly a 45 °C rise over ambient. Measure the tab temperature during the all-segments-on test and keep hot metal off plastic breadboards.
+Worst-case regulator dissipation is (12.8 − 0.35 − 5.0) V × 0.34 A ≈ 2.5 W plus quiescent loss, where 0.34 A sums the 214 mA display bound, SRAM and EPROM active current, HCT ΔICC for P_D receivers at a 2.4 V high, pull-ups, the bleeder and status LEDs. With a ≤15 °C/W heatsink and about 5 °C/W junction-to-case, that is roughly a 51 °C rise over ambient. Measure the tab temperature during the all-segments-on test and keep hot metal off plastic breadboards.
 
 Maintain approximately 4.85–5.15 V at the board rails during normal bench operation; the absolute qualified system range must respect every exact component datasheet. The display alone is estimated around 120 mA for all segments on at nominal voltage, with a conservative resistor-only bound around 214 mA. Budget the CPU, EPROM, SRAM, gates, pull-up currents and transients separately. No finished power-consumption or battery-life measurement is claimed.
 
@@ -300,54 +308,56 @@ Pin 14=+5 V; pin 7=GND; add 100 nF directly at the package.
 
 | U5 pins | Wiring |
 |---|---|
-| 1, 2 | 10 kΩ between pin 2 and pin 1; 330 pF C0G from pin 1 to GND. Pin 2 is MASTER_CLK. |
+| 1, 2 | 10 kΩ between pin 2 and pin 1; 560 pF C0G from pin 1 to GND. Pin 2 is MASTER_CLK. |
 | 3, 4 | Pin 3=POR_RAW_N; pin 4 is its inverted, Schmitt-cleaned version. |
 | 5, 6 | Pin 5=pin 4; pin 6=COLD_CLEAR_N. |
 | 9, 8 | Pin 9=RESET_RC node; pin 8 is its inverted version. |
 | 11, 10 | Pin 11=pin 8; pin 10=RESET_RC_READY. |
 | 13, 12 | Tie unused input 13 to GND; leave output 12 open. |
 
-For RESET_RC, connect 100 kΩ from COLD_CLEAR_N to the node, and 1 µF from node to GND. Add a discharge branch: RESET_RC → 1 kΩ → 1N4148 anode; diode cathode → COLD_CLEAR_N. The CPU RESET button connects RESET_RC through a separate 1 kΩ to GND. U11 gate 3 generates CPU_RESET_N = COLD_CLEAR_N & RESET_RC_READY. This gives prompt power-reset assertion and delayed release (about 70–90 ms) after the phase generator has begun clocking. A reset-button press leaves COLD_CLEAR_N unchanged.
+For RESET_RC, connect 100 kΩ from COLD_CLEAR_N to the node, and 1 µF from node to GND. Add a discharge branch: RESET_RC → 1 kΩ → 1N4148 anode; diode cathode → COLD_CLEAR_N. The CPU RESET button connects RESET_RC through a separate 1 kΩ to GND. U11 gate 3 generates CPU_RESET_N = COLD_CLEAR_N & RESET_RC_READY. This gives prompt power-reset assertion and delayed release after the phase generator has begun clocking: about 75 ms at mid-threshold, 30–150 ms over the HC14 threshold range and a ±20 % capacitor. A reset-button press leaves COLD_CLEAR_N unchanged.
 
-The RC oscillator is a starting circuit, not a calibrated frequency source. With 10 kΩ and 330 pF (RC = 3.3 µs) an HC14 relaxation oscillator at 5 V runs at roughly 1/(0.8–1.0 × RC), about 300–380 kHz, giving a 75–95 kHz CPU clock. The 1 nF of revision 0.2 gave about 100–125 kHz master and 25–30 kHz CPU, a fourfold shortfall against the timing text of that revision. Measure MASTER_CLK and adjust the RC only with power off. Acceptance: MASTER_CLK ≤400 kHz, CPU PHI2 ≤100 kHz, clean transitions, and the margins in Sections 6.5 and 11.2. Do not infer frequency from resistor/capacitor labels alone.
+The RC oscillator is a starting circuit, not a calibrated frequency source. Its period is RC·[ln((V−VT−)/(V−VT+)) + ln(VT+/VT−)], and the SN74HC14 guarantees only VT+ 1.55–3.15 V, VT− 0.9–2.45 V and ΔVT ≥0.4 V at 4.5 V. With 10 kΩ ±5 %, 560 pF ±5 % and stray capacitance, MASTER_CLK lies between about 76 and 530 kHz, so the CPU clock (master/6) lies between about 13 and 88 kHz. Revision 0.3's 330 pF spanned 127–890 kHz and could exceed its own ceiling. Measure MASTER_CLK and adjust the RC only with power off. Acceptance: MASTER_CLK ≤600 kHz, CPU PHI2 ≤100 kHz, clean transitions, and the margins in Sections 6.5 and 11.2. Do not infer frequency from resistor/capacitor labels alone. The logic itself simulates cleanly far above this ceiling; the ceiling is a breadboard signal-integrity margin, and firmware timing (debounce, display delays) must be calibrated to the measured clock.
 
 ### 5.4 U7 — SN74AC14N CPU clock buffer
 
-Pin 1 receives U6 pin 6 (/Q_A). Pin 2 drives U1 pin 37, the CPU PHI2 input. Its inversion restores the Q_A polarity. Pin 14=+5 V, pin 7=GND, local 100 nF. Tie unused inputs 3,5,9,11,13 to GND and leave outputs 4,6,8,10,12 open. /Q_A also feeds U4 pin 1 on BB10; keep the U7 branch short and let the U4 branch be the longer one.
+Pin 1 receives U6 pin 6 (/Q_A). Pin 2 drives U1 pin 37, the CPU PHI2 input. Its inversion restores the Q_A polarity. Pin 3 also receives /Q_A; pin 4 is PHI2_FAULT, a separately buffered copy that clocks the fault latch U38 on BB9, so the CPU clock net never leaves BB1. Pin 14=+5 V, pin 7=GND, local 100 nF. Tie unused inputs 5,9,11,13 to GND and leave outputs 6,8,10,12 open. /Q_A also feeds U4 pin 1 on BB10; keep the U7 branches short and let the U4 branch be the longer one.
 
-Use U7 pin 2 as the PHI2 observation/fault-latch clock net; keep its load and wiring controlled. EARLY, the read window and the cycle register are derived from the raw U6 state, as specified below. Include U7 propagation delay in timing measurements. WDC specifies a 5 ns maximum PHI2 rise/fall time; the AC buffer is a candidate to meet this on a light load, not a substitute for measurement at U1 pin 37. If it fails, fix the clock distribution before progressing.
+Use U7 pin 2 as the PHI2 observation net and keep its load to U1 alone. EARLY, the read window and the cycle register are derived from the raw U6/U45 state, as specified below. Include U7 propagation delay in timing measurements. WDC specifies a 5 ns maximum PHI2 rise/fall time; the AC buffer is a candidate to meet this on a light load, not a substitute for measurement at U1 pin 37. If it fails, fix the clock distribution before progressing.
 
 ### 5.5 U6 — Johnson timing generator
 
-Use one SN74HCT74N, not a ripple divide-by-four counter. Both flip-flops share the master oscillator. D_A = !Q_B and D_B = Q_A gives 00→10→11→01→00.
+Use U6 (both flip-flops) and U45 flip-flop B, not a ripple counter. All three stages share the master oscillator. D_A = !Q_C, D_B = Q_A and D_C = Q_B give 000→100→110→111→011→001→000. COLD_CLEAR_N clears all three stages; the two unused codes (010, 101) form their own two-state loop and are reachable only through a fault, so verify the six-state sequence at bring-up.
 
 | Pin | Connect |
 |---:|---|
 | 1 /CLR_A | COLD_CLEAR_N |
-| 2 D_A | Pin 8 /Q_B |
+| 2 D_A | /Q_C from U45 pin 8 |
 | 3 CLK_A | Master oscillator |
 | 4 /PRE_A | +5 V |
-| 5 Q_A | Raw Q_A to U11 pin 1, U6 pin 12, U10 pin 9 and U45 pin 3 |
-| 6 /Q_A | U7 pin 1 (CPU clock-buffer input) and U4 pin 1 (write-buffer enable) |
+| 5 Q_A | Raw Q_A to U11 pin 1, U6 pin 12, U18 pin 3 and U45 pin 3 |
+| 6 /Q_A | U7 pins 1 and 3 (CPU and fault-latch clock buffers) and U4 pin 1 (write-buffer enable) |
 | 7 | Ground |
-| 8 /Q_B | Pin 2 and U11 pin 2 |
-| 9 Q_B | U10 pin 12 (hold term); also a test point |
+| 8 /Q_B | U11 pin 2 |
+| 9 Q_B | U10 pin 12 (hold term) and U45 pin 12 (D_C); also a test point |
 | 10 /PRE_B | +5 V |
 | 11 CLK_B | Master oscillator |
 | 12 D_B | Pin 5 Q_A |
 | 13 /CLR_B | COLD_CLEAR_N |
 | 14 | +5 V |
 
-| Q_A | Q_B | State | CPU PHI2 | EARLY | Read window (Q_A & RWB) | Latch hold term (Q_B & RWB_CYCLE) |
-|--:|--:|---|--:|--:|---|---|
-| 0 | 0 | PRE | 0 | 0 | 0 | 0 |
-| 1 | 0 | EARLY | 1 | 1 | RWB | 0 |
-| 1 | 1 | LATE | 1 | 0 | RWB | RWB_CYCLE |
-| 0 | 1 | POST | 0 | 0 | 0 | RWB_CYCLE |
+| Q_A | Q_B | Q_C | State | CPU PHI2 | EARLY | Read window (Q_A & !Q_C & RWB) | Latch hold term (Q_B & RWB_CYCLE) |
+|--:|--:|--:|---|--:|--:|---|---|
+| 0 | 0 | 0 | PRE | 0 | 0 | 0 | 0 |
+| 1 | 0 | 0 | EARLY | 1 | 1 | RWB | 0 |
+| 1 | 1 | 0 | MID | 1 | 0 | RWB | RWB_CYCLE |
+| 1 | 1 | 1 | LATE | 1 | 0 | 0 | RWB_CYCLE |
+| 0 | 1 | 1 | POST | 0 | 0 | 0 | RWB_CYCLE |
+| 0 | 0 | 1 | GAP | 0 | 0 | 0 | 0 |
 
-EARLY = Q_A & !Q_B. Every CPU cycle consumes four master periods. A 400 kHz measured master gives 100 kHz CPU. Write strobes end, and the read latch closes, when Q_B rises, one full master period before Q_A falls. This removes the otherwise serious dependence on a 10 ns CPU write-hold guarantee, and it is what makes the bus-handoff guarantees of Section 6.5 counter-enforced. A ripple counter would reassert EARLY briefly at rollover and is unsuitable for these equations.
+EARLY = Q_A & !Q_B. Every CPU cycle consumes six master periods. A 600 kHz measured master gives 100 kHz CPU. Write strobes end, and the read latch closes, when Q_B rises, two master periods before Q_A falls; the read window ends when Q_C rises, one full master period before Q_A falls and therefore before the CPU can change its address. This removes the dependence on a 10 ns CPU write-hold guarantee and on any gate delay racing the CPU's address hold, and it is what makes the bus-handoff guarantees of Section 6.5 counter-enforced. A ripple counter would glitch these decodes at rollover and is unsuitable.
 
-The table describes logical clock phases; the actual CPU PHI2 is delayed by U7. At the 400 kHz maximum initial master rate, one master period is 2.5 µs. Verify that write data has settled before the EARLY window ends, and remains valid through the receiving latch/ROM/RAM timing requirements.
+The table describes logical clock phases; the actual CPU PHI2 is delayed by U7. At the 600 kHz maximum master rate, one master period is 1.67 µs. Verify that write data has settled before the EARLY window ends, and remains valid through the receiving latch/ROM/RAM timing requirements.
 
 ## 6. CPU, memory, and bus interface
 
@@ -369,7 +379,7 @@ Pin 1 is VPB, not ground. Do not copy an original NMOS 6502 pin-1 ground connect
 | 21 | VSS | Ground |
 | 22,23,24,25 | A12,A13,A14,A15 | Address bus |
 | 26,27,28,29,30,31,32,33 | D7,D6,D5,D4,D3,D2,D1,D0 | Corresponding C_D nets (each with its 10 kΩ pull-up) |
-| 34 | RWB | RWB net: U8 pin 3, U10 pin 10, U4 pin 19, U45 pin 2 |
+| 34 | RWB | RWB net: U8 pin 3, U18 pin 5, U4 pin 19, U45 pin 2 |
 | 35 | NC | Unconnected |
 | 36 | BE | 10 kΩ pull-up to +5 V; no external bus master in this prototype |
 | 37 | PHI2 | U7 pin 2, qualified PHI2 |
@@ -444,7 +454,7 @@ U44 is an octal transparent latch with flow-through pinout. LE high makes it tra
 | 12–19 | C_D7–C_D0 (outputs Q8–Q1; pin 19 = C_D0, pin 12 = C_D7) |
 | 20 | +5 V, 100 nF to pin 10 |
 
-U45 — SN74HCT74N, cycle-direction register. Only flip-flop A is used.
+U45 — SN74HCT74N. Flip-flop A is the cycle-direction register; flip-flop B is the third Johnson stage Q_C.
 
 | Pin | Connect |
 |---:|---|
@@ -455,9 +465,12 @@ U45 — SN74HCT74N, cycle-direction register. Only flip-flop A is used.
 | 5 Q_A | RWB_CYCLE to U10 pin 13 |
 | 6 | Unconnected output |
 | 7 | GND |
-| 8, 9 | Unconnected outputs of the unused flip-flop |
-| 10, 13 | +5 V |
-| 11, 12 | GND |
+| 8 /Q_C | U6 pin 2 (D_A) and U18 pin 4 |
+| 9 Q_C | Test point |
+| 10 /PRE_B | +5 V |
+| 11 CLK_B | Master oscillator |
+| 12 D_B | Q_B from U6 pin 9 |
+| 13 /CLR_B | COLD_CLEAR_N |
 | 14 | +5 V, 100 nF to pin 7 |
 
 RWB_CYCLE captures RWB at the PRE→EARLY edge, when RWB has been stable for the whole PHI2-low phase, and holds it until the next PRE→EARLY edge. It exists so that the latch's hold through POST depends on the cycle that just ended, not on the RWB value the CPU has already changed for the next cycle.
@@ -466,28 +479,30 @@ RWB_CYCLE captures RWB at the PRE→EARLY edge, when RWB has been stable for the
 
 Every driver of P_D and C_D is enabled by a Johnson-state term, never by a bare address or RWB transition:
 
-| State | Q_A Q_B | PHI2 | Read cycle (RWB=1) | Write cycle (RWB=0) |
+| State | Q_A Q_B Q_C | PHI2 | Read cycle (RWB=1) | Write cycle (RWB=0) |
 |---|---|---|---|---|
-| PRE | 0 0 | low | P_D: no driver (pull-ups). C_D: no driver (pull-ups). Address, RWB and decode settle. | Same. |
-| EARLY | 1 0 | high | Selected ROM/RAM/U14/U15 drives P_D (RD_WIN_N low). U44 transparent (LE high) and driving C_D. | U4 drives P_D from CPU write data. RAM_WE_N and port strobes active. U44 output off. |
-| LATE | 1 1 | high | Device still drives P_D. U44 closed at the EARLY→LATE edge and driving C_D; the CPU samples at the PHI2 fall. | U4 drives P_D. Strobes ended at the EARLY→LATE edge. U44 off. |
-| POST | 0 1 | low | RD_WIN_N high: device releases P_D. U44 keeps driving C_D (RWB_CYCLE=1) for the whole state. | U4 off. U44 off (RWB_CYCLE=0). CPU releases C_D within tDHW. |
+| PRE | 0 0 0 | low | P_D: no driver (pull-ups). C_D: no driver (pull-ups). Address, RWB and decode settle. | Same. |
+| EARLY | 1 0 0 | high | Selected ROM/RAM/U14/U15 drives P_D (RD_WIN_N low). U44 transparent (LE high) and driving C_D. | U4 drives P_D from CPU write data. RAM_WE_N and port strobes active. U44 output off. |
+| MID | 1 1 0 | high | Device still drives P_D. U44 closed at the EARLY→MID edge and driving C_D. | U4 drives P_D. Strobes ended at the EARLY→MID edge. U44 off. |
+| LATE | 1 1 1 | high | RD_WIN_N high: device releases P_D. U44 keeps driving C_D; the CPU samples at the PHI2 fall. | U4 drives P_D. U44 off. |
+| POST | 0 1 1 | low | No P_D driver. U44 keeps driving C_D (RWB_CYCLE=1). The CPU changes its address. | U4 off. U44 off (RWB_CYCLE=0). CPU releases C_D within tDHW. |
+| GAP | 0 0 1 | low | No driver on either bus. | Same. |
 
 Consequences:
 
-- P_D: a driver is on only while Q_A=1. Between a release at a PHI2 fall and the next enable at a PHI2 rise lie two full master periods (5 µs at 400 kHz) during which nothing is enabled. A change of selection between ROM, RAM and a port buffer happens while every output enable is inactive, so the ROM/SRAM chip-enable skew that revision 0.2 exposed can no longer produce opposing drive.
-- C_D, read followed by write: U44 is off from the POST→PRE edge; the CPU begins driving at the next PHI2 rise plus tMDS, at least one master period later.
-- C_D, write followed by read: the CPU releases at PHI2 fall plus tDHW (≥10 ns); U44 turns on at the next PHI2 rise, two master periods later.
-- Read data hold: U44 holds and drives through POST, 2.5 µs after PHI2 falls at 400 kHz, against the CPU's 10 ns requirement.
-- Capture margin: the selected device drives P_D from PHI2 rise plus the RD_WIN_N gate delay plus tOE, under 100 ns in total; U44 closes at PHI2 rise plus one master period (2.5 µs). At a future 1 MHz CPU the window is still 250 ns, but that board requires fresh qualification.
+- P_D: a driver is on only while Q_A=1. A memory or input buffer releases at the MID→LATE edge, one master period before PHI2 falls, and the next enable comes at the next PHI2 rise, four master periods later. The CPU changes its address after PHI2 falls, a full master period after every output enable went inactive, so a change of selection between ROM, RAM and a port buffer can no longer meet an active enable. Revision 0.3 ended the read window at the PHI2 fall itself and relied on an HCT00 delay beating the CPU address hold.
+- C_D, read followed by write: U44 is off from the POST→GAP edge; the CPU begins driving at the next PHI2 rise plus tMDS, at least two master periods later.
+- C_D, write followed by read: the CPU releases at PHI2 fall plus tDHW (≥10 ns); U44 turns on at the next PHI2 rise, three master periods later.
+- Read data hold: U44 holds and drives through POST, one master period (1.67 µs at 600 kHz) after PHI2 falls, against the CPU's 10 ns requirement.
+- Capture margin: the selected device drives P_D from PHI2 rise plus the RD_WIN_N gate delay plus tOE, under 100 ns in total; U44 closes at PHI2 rise plus one master period (1.67 µs at 600 kHz). A faster clock requires fresh qualification.
 
 The remaining datasheet dependences are each inside a single device and carry margins of a full master period: the CPU must have released C_D before the next PHI2 rise after a write (tDHW is specified only as a 10 ns minimum, and the 6502 family's data drivers are gated by PHI2), and each P_D driver must release within the PHI2-low phase after its window. Section 11.2 measures both.
 
-Pull-ups and capacitance budget. The eight P_D pull-ups are 4.7 kΩ. The weakest sinking drivers, AS6C62256 and AT27C256R, specify VOL ≤0.4 V at IOL = 2.1 mA; 4.7 kΩ from a 5.25 V rail draws 1.03 mA at 0.4 V, half that limit. Each P_D line is budgeted at ≤60 pF (U4 output, U44 input, RAM, ROM, U14, U15, U16 inputs, breadboard contacts and ≤250 mm of wire): τ = 282 ns, 10–90 % rise 0.62 µs, and the slowest slew through the HCT threshold region, at 2.0 V, is (5 − 2)/282 ns ≈ 10.6 V/µs or 94 ns/V, five times faster than TI's 500 ns/V input-transition limit for the HCT inputs of U44 and U16. A released line reaches 4.0 V within 0.45 µs, inside the 5 µs PHI2-low phase, so a read of an unmapped or write-only port finds a bus that was pulled high before the window opened and returns $FF.
+Pull-ups and capacitance budget. The eight P_D pull-ups are 4.7 kΩ. The weakest sinking drivers, AS6C62256 and AT27C256R, specify VOL ≤0.4 V at IOL = 2.1 mA; 4.7 kΩ from a 5.25 V rail draws 1.03 mA at 0.4 V, half that limit. Each P_D line carries seven device pins plus breadboard contacts and wire: about 60 pF typical in pin capacitance and contacts, up to about 110 pF at datasheet maxima, about 70 pF in the generated layout. At 60 pF: τ = 282 ns, 10–90 % rise 0.62 µs, and the slowest slew through the HCT threshold region, at 2.0 V, is (5 − 2)/282 ns ≈ 10.6 V/µs or 94 ns/V, five times faster than TI's 500 ns/V input-transition limit for the HCT inputs of U44 and U16. A released line reaches 4.0 V within 0.45 µs at 60 pF, well inside the four master periods between a release and the next read window, so a read of an unmapped or write-only port returns $FF. The binding limit is TI's 500 ns/V HCT input-transition rate: with 4.7 kΩ it allows up to about 320 pF per P_D line. Simulation shows unmapped reads still return $FF up to roughly 1,000 pF.
 
-The eight C_D pull-ups are 10 kΩ with a ≤45 pF budget (U1 pins, U4 inputs, U44 outputs and the short BB1–BB10 run): τ = 450 ns, 10–90 % rise 0.99 µs, 150 ns/V at 2.0 V, within U4's input-transition limit, and 0.5 mA per line against the CPU's and U44's output drive. They exist so that no CPU or U4 input floats during PRE or during the PHI2-low phase of write cycles, when the CPU's own data drivers are off. WDC publishes no input-transition limit for the W65C02S.
+The eight C_D pull-ups are 10 kΩ; at 45 pF (U1 pins, U4 inputs, U44 outputs and the BB1–BB10 run; the generated layout estimates about 36 pF): τ = 450 ns, 10–90 % rise 0.99 µs, 150 ns/V at 2.0 V, within U4's input-transition limit, and 0.5 mA per line against the CPU's and U44's output drive. They exist so that no CPU or U4 input floats during PRE or during the PHI2-low phase of write cycles, when the CPU's own data drivers are off. WDC publishes no input-transition limit for the W65C02S.
 
-Both budgets are acceptance criteria (Section 11.2), measured as the rise time of a released line. A longer rise means the capacitance budget is exceeded: shorten wiring or remove loads; do not weaken the pull-ups.
+The HCT transition-rate limit allows up to about 150 pF per C_D line. Both limits are acceptance criteria (Section 11.2), measured as the rise time of a released line. A longer rise means too much capacitance: shorten wiring or remove loads; do not weaken the pull-ups.
 
 ## 7. Address decoding and strobe timing
 
@@ -512,7 +527,7 @@ U10 (NAND), SN74HCT00N
 
 - Pins 1=nA15, 2=IO_N; output 3=RAM_CE_N.
 - Pins 4=EARLY_OK, 5=nRWB; output 6=WR_PHASE_N.
-- Pins 9=Q_A, 10=RWB; output 8=RD_WIN_N (ROM and RAM OE_N, U14/U15 /G2, U11 pin 12).
+- Gate 3 is unused in this revision: pins 9 and 10 = GND, output 8 unconnected. RD_WIN_N comes from U18 gate 2 (Section 8).
 - Pins 12=Q_B, 13=RWB_CYCLE; output 11=HOLD_N (U11 pin 13).
 - ROM_CE_N=nA15 directly.
 
@@ -521,7 +536,7 @@ U11 (AND), SN74HCT08N
 - Pins 1=Q_A, 2=/Q_B; output 3=EARLY (U11 pin 4 and U44 pin 11).
 - Pins 4=EARLY, 5=CPU_RESET_N; output 6=EARLY_OK.
 - Pins 9=COLD_CLEAR_N, 10=RESET_RC_READY; output 8=CPU_RESET_N. This gives immediate power-reset assertion and delayed CPU-reset release.
-- Pins 12=RD_WIN_N, 13=HOLD_N; output 11=LATCH_OE_N (U44 pin 1).
+- Pins 12=RD_WIN_N (U18 pin 6), 13=HOLD_N; output 11=LATCH_OE_N (U44 pin 1).
 
 U13 (PORT), SN74HCT138N
 
@@ -537,7 +552,7 @@ U12 (OR), SN74HCT32N
 - Pins 9=Y2_N, 10=WR_PHASE_N; output 8=WR_GPIO_N.
 - Pins 12=WR_PHASE_N, 13=WRITE_BLOCK; output 11=RAM_WE_N.
 
-Security module uses two additional OR gates on U41: SET_MESSAGE_N=Y3_N | WR_PHASE_N; SET_RESULT_N=Y4_N | WR_PHASE_N. Its latches clock on the rising edges of these pulses, which occur at the EARLY→LATE edge, midway through the CPU high phase.
+Security module uses two additional OR gates on U41: SET_MESSAGE_N=Y3_N | WR_PHASE_N; SET_RESULT_N=Y4_N | WR_PHASE_N. Its latches clock on the rising edges of these pulses, which occur at the EARLY→MID edge, one third of the way through the CPU high phase.
 
 ### 7.2 Equations
 
@@ -546,14 +561,14 @@ IO_N        = !( !A15 & A14 & A13 & A12 & A11 & A10 & A9 & A8 )
 ROM_CE_N    = !A15
 RAM_CE_N    = !( !A15 & IO_N )
 RAM_SELECT  = !RAM_CE_N
-RD_WIN_N    = !( Q_A & RWB )            ; read window: PHI2 high of read cycles
+RD_WIN_N    = !( Q_A & !Q_C & RWB )     ; read window: EARLY+MID of read cycles (U18 gate 2)
 ROM_OE_N    = RD_WIN_N
 RAM_OE_N    = RD_WIN_N
 WBUF_EN     = Q_A & !RWB                ; realized by U4 enables /G1 = /Q_A, /G2 = RWB
 RWB_CYCLE   = RWB sampled at the PRE→EARLY edge (U45)
 HOLD_N      = !( Q_B & RWB_CYCLE )
-LATCH_OE_N  = RD_WIN_N & HOLD_N         ; U44 drives C_D in EARLY/LATE of a read and in the POST after a read
-LATCH_LE    = EARLY                     ; U44 transparent in EARLY, holds from the EARLY→LATE edge
+LATCH_OE_N  = RD_WIN_N & HOLD_N         ; U44 drives C_D in EARLY, MID, LATE and POST of a read
+LATCH_LE    = EARLY                     ; U44 transparent in EARLY, holds from the EARLY→MID edge
 EARLY       = Q_A & !Q_B
 EARLY_OK    = EARLY & CPU_RESET_N
 WR_PHASE_N  = !( EARLY_OK & !RWB )
@@ -563,7 +578,7 @@ RD_KEYS_EN  = !Y1_N & !RD_WIN_N         ; U15 enables /G1 = Y1_N, /G2 = RD_WIN_N
 WR_GPIO_N   = Y2_N | WR_PHASE_N
 ```
 
-ROM and RAM CE are mutually exclusive. SRAM CE is inactive during all I/O addresses. Memory output enables are active only inside the read window, so a chip-enable change during the PHI2-low phase can never drive the bus. Only the selected I/O read buffer drives P_D, and only inside the read window. Writes happen only in EARLY and only while CPU reset is released.
+ROM and RAM CE are mutually exclusive. SRAM CE is inactive during all I/O addresses. Memory output enables are active only inside the read window, which ends a master period before PHI2 falls, so a chip-enable change during the PHI2-low phase can never drive the bus. Only the selected I/O read buffer drives P_D, and only inside the read window. Writes happen only in EARLY and only while CPU reset is released.
 
 SRAM /WE is also qualified functionally by SRAM /CE: a low RAM_WE_N during a ROM or I/O cycle does not write unselected SRAM. Scope both pins together. For the first core-only bring-up, tie WRITE_BLOCK to GND. Fit BB9 and its driven WRITE_BLOCK before claiming hardware bank-lock behavior.
 
@@ -585,7 +600,7 @@ I/O register contract
 
 The core ignores A3–A7 within the I/O page; these addresses therefore mirror every 8 bytes. Firmware uses only the canonical addresses. Reads happen inside the read window and writes inside the EARLY window of Section 6.5.
 
-WR_GPIO_N is low only during the selected EARLY write window. Its rising edge occurs one master period before CPU PHI2 falls. Do not replace it with a casually delayed PHI2-falling write strobe: W65C02 data hold after that edge is only 10 ns minimum, while ordinary HCT gates may delay longer.
+WR_GPIO_N is low only during the selected EARLY write window. Its rising edge occurs two master periods before CPU PHI2 falls. Do not replace it with a casually delayed PHI2-falling write strobe: W65C02 data hold after that edge is only 10 ns minimum, while ordinary HCT gates may delay longer.
 
 GPIO byte at $7F02
 
@@ -635,18 +650,26 @@ Use gate 1 to generate:
 
 DISPLAY_OE_N = !(CPU_RESET_N & DISPLAY_ENABLE & FAULT_N)
 
+and gate 2 to generate the read window:
+
+RD_WIN_N = !(Q_A & /Q_C & RWB)
+
 | Pin | Connect |
 |---|---|
 | 1 | CPU_RESET_N |
 | 2 | DISPLAY_ENABLE |
 | 13 | FAULT_N from the security board; tie +5 V if that board is absent |
 | 12 | DISPLAY_OE_N |
+| 3 | Q_A from U6 pin 5 |
+| 4 | /Q_C from U45 pin 8 |
+| 5 | RWB from U1 pin 34 |
+| 6 | RD_WIN_N: ROM and RAM OE_N (pin 22), U14/U15 pin 19, U11 pin 12 |
 | 7 | GND |
 | 14 | +5 V |
-| 3, 4, 5, 9, 10, 11 | GND, unused gate inputs |
-| 6, 8 | No connection, unused outputs |
+| 9, 10, 11 | GND, unused gate inputs |
+| 8 | No connection, unused output |
 
-Add 100 nF between 14 and 7. CD74HC10E is a verified PDIP14 part. This HC gate receives only full CMOS control signals; do not substitute a TTL-memory output for one of them. The fault latch supplies FAULT_N directly from its complementary output and does not clear on CPU reset.
+Add 100 nF between 14 and 7. CD74HC10E is a verified PDIP14 part. Both HC gates receive only full CMOS control signals (HCT74 outputs, the HCT273, the CPU's RWB); do not substitute a TTL-memory output for one of them. The fault latch supplies FAULT_N directly from its complementary output and does not clear on CPU reset.
 
 U19 / U20: two SN74HCT244N, PDIP20
 
@@ -812,7 +835,7 @@ The core inserts !WRITE_BLOCK into its SRAM write-enable equation. protected is 
 
 The message and result flip-flops have D permanently high and clock on the positive edge of SET_MESSAGE_N / SET_RESULT_N: the end of the selected write window. Any data byte sets the lock. Neither lock has a CPU-controlled clear.
 
-The fault flip-flop clocks on the rising edge of CPU PHI2, with D=fault_next. bad_write deliberately omits PHI2/EARLY: address, RWB, and decode must settle during the preceding CPU-low interval and meet the HCT74 setup/hold requirements. Verify this complete path on the actual board. A low clock frequency gives more settle time but does not fix phase-boundary hazards by itself.
+The fault flip-flop clocks on the rising edge of PHI2_FAULT (U7 pin 4, a separately buffered copy of CPU PHI2), with D=fault_next. bad_write deliberately omits PHI2/EARLY: address, RWB, and decode must settle during the preceding CPU-low interval and meet the HCT74 setup/hold requirements. Verify this complete path on the actual board. A low clock frequency gives more settle time but does not fix phase-boundary hazards by itself.
 
 Once FAULT is set, WRITE_BLOCK blocks every SRAM write, including zero page, the stack and the scratch area, and the panel is blanked by hardware. Firmware consequences are specified in Section 10.1. Reads, ROM fetches and I/O writes (display, lock ports) continue to work.
 
@@ -838,7 +861,7 @@ U38 — SN74HCT74N
 |---:|---|
 | 1 | COLD_CLEAR_N |
 | 2 | fault_next from U41 pin 3 |
-| 3 | CPU PHI2 |
+| 3 | PHI2_FAULT from U7 pin 4 |
 | 4, 10, 13, 14 | +5 V |
 | 5 | FAULT; U41 pins 1 and 4; U15 pin 9; red status LED |
 | 6 | FAULT_N to display output-enable logic |
@@ -879,7 +902,7 @@ U41 — SN74HCT32N
 
 Status indicators are standard in this revision: each Q output (U37 pin 5, U37 pin 9, U38 pin 5) -> 4.7 kΩ resistor -> LED anode; LED cathode -> GND. The FAULT LED is the only visible indication of a fault, because the panel is hardware-blanked. Keep LED loads separate from the clocks. Do not connect LEDs directly to logic pins without resistors.
 
-Connect Y3_N from U13 pin 12 as PORT3_N; Y4_N from U13 pin 11 as PORT4_N. Route U41 pin 6 WRITE_BLOCK to U12 pin 13. Route MESSAGE_LOCK, RESULT_LOCK and FAULT to U15 pins 7, 8 and 9, and U38 pin 6 FAULT_N to U18 pin 13. PHI2 for U38 pin 3 is U7 pin 2, not a buffered CPU clock-output pin.
+Connect Y3_N from U13 pin 12 as PORT3_N; Y4_N from U13 pin 11 as PORT4_N. Route U41 pin 6 WRITE_BLOCK to U12 pin 13. Route MESSAGE_LOCK, RESULT_LOCK and FAULT to U15 pins 7, 8 and 9, and U38 pin 6 FAULT_N to U18 pin 13. U38 pin 3 is PHI2_FAULT from U7 pin 4, not the CPU PHI2 net and not a CPU clock-output pin.
 
 Power-event limitation: COLD_CLEAR_N clears these latches after a supply event; that does not establish that SRAM lost its contents. A live-key design must couple latch clearing to independently completed erasure or qualified full power discharge. The RC bleeder and supervisor alone do not satisfy this requirement.
 
@@ -899,14 +922,14 @@ Hardware facts the firmware must respect:
 Boot sequence. Steps 1–3 use registers and I/O only: no SRAM write, no JSR, no push.
 
 1. SEI; CLD; LDX #$FF; TXS.
-2. STA #$00 to $7F02: display blank, GPIO shadow zero. This store is to I/O and is permitted in every state.
+2. LDA #$00; STA $7F02: display blank, GPIO shadow zero. This store is to I/O and is permitted in every state.
 3. LDA $7F01 and act on bits 7:6:5 per the table below.
-4. Fresh start only: self-test the stack region with absolute stores before any stack use. Store $AA to $0100 and $55 to $01FF, read both back, then store and read the complements. Any mismatch enters the fault hold loop even though bit 7 read clear. Only after this test may the firmware use JSR, pushes or scratch.
+4. Every state except fault hold: self-test the stack region with absolute stores before any stack use. Store $AA to $0100 and $55 to $01FF, read both back, then store and read the complements. Any mismatch enters the fault hold loop even though bit 7 read clear. Only after this test may the firmware use JSR, pushes or scratch.
 5. Fresh start only: zero $0000–$3FFF, then begin a new session.
 
 | Bits 7:6:5 of `$7F01` (FAULT, RESULT_LOCK, MESSAGE_LOCK) | Boot behavior |
 |---|---|
-| 0 0 0 | Fresh start. Stack self-test, initialize $0000–$3FFF, new session. Whatever a previous session left in SRAM is discarded; the firmware never resumes from RAM contents. |
+| 0 0 0 | Fresh start. Initialize $0000–$3FFF, new session. Whatever a previous session left in SRAM is discarded; the firmware never resumes from RAM contents. |
 | 0 0 1 | Session invalidated: a reset occurred after the message was frozen and before a result was produced. Read-only abort state: status code C0, no write above $3FFF, keys ignored except NEXT/BACK on the status page. Exit only by cold clear. |
 | 0 1 x | Review-only state. Verify the record magic, format version and CRC at $6000 using scratch below $4000 only. Valid: status code C2 and NEXT/BACK paging through the public result record (fields 06 and 07 and the message hash). Invalid: status code C1. No write above $3FFF. Exit only by cold clear. |
 | 1 x x | Fault hold. ROM-only loop: no SRAM access of any kind, no stack, no JSR. The panel is blanked by hardware; the FAULT LED is the indication. Exit only by cold clear. |
@@ -1019,10 +1042,10 @@ R and S are 32 bytes each. The firmware test harness must compare all 64 bytes a
 ### 11.1 Wiring sequence
 
 1. Power only. Build the fused/regulator fixture or use the current-limited bench supply. Check polarity, all rail bridges, 5 V at every board, and no connection to the battery-input rail.
-2. Clock/reset only. Populate U5/U6/U7/U11/U42/U45. Verify master and four Johnson states; observe COLD_CLEAR_N release before CPU_RESET_N, with at least two complete CPU clocks while CPU reset is still low. Check the PHI2 waveform at the eventual CPU pin location with the intended load. Confirm MASTER_CLK ≤400 kHz.
+2. Clock/reset only. Populate U5/U6/U7/U11/U42/U45. Verify master and the six Johnson states; observe COLD_CLEAR_N release before CPU_RESET_N, with at least two complete CPU clocks while CPU reset is still low. Check the PHI2 waveform at the eventual CPU pin location with the intended load. Confirm MASTER_CLK ≤600 kHz.
 3. CPU, ROM and bus interface. Fit U1/U3/U4/U44/U8–U13, both sets of pull-ups and bypasses. Program/read back the diagnostic image. Check reset-vector reads at $FFFC/$FFFD and fetches at $8000. Then run the bus-handoff checks of Section 11.2 before adding SRAM.
 4. SRAM. Fit U2 and confirm diagnostic-loop writes and reads at $0200. Repeat the handoff checks, which now exercise RAM. Test address and data walking patterns with a diagnostic ROM before placing any trust in RAM capacity.
-5. Input/GPIO. Populate U14–U18. Check switch polarity, key bits, default display blanking and exactly one rising WR_GPIO_N edge per intended store. The edge must occur one master period before CPU PHI2 falls.
+5. Input/GPIO. Populate U14–U18. Check switch polarity, key bits, default display blanking and exactly one rising WR_GPIO_N edge per intended store. The edge must occur two master periods before CPU PHI2 falls.
 6. One display digit. Check segment pin mapping, current, glyph shapes and room-light legibility with 3.3 kΩ resistors. Then populate the remaining driver banks and fanout buffers, and run the supervisor rail check of Section 5.2.
 7. Bank locks. Add BB9, removing all temporary WRITE_BLOCK/status/FAULT_N straps. Check each protected bank, display blanking on fault, and the reset/recovery rows of Section 11.4.
 8. Cryptographic firmware. Port SHA-512, field/scalar operations and Ed25519; compare public vectors byte-for-byte. Only after this, implement the restrictive transaction parser and integration tests.
@@ -1033,16 +1056,16 @@ Use a ground spring/short probe return for fast-edge measurements. Check ROM↔R
 
 The diagnostic loop of Section 11.3 exercises every handoff type: ROM read → I/O read (LDA $7F00), I/O read → RAM write (STA $0200), RAM write → RAM read (LDA $0200), and RAM read → ROM read (JMP). All checks are made with the oscilloscope on the assembled core; a logic analyzer may trigger but cannot substitute.
 
-1. RD_WIN_N (U10 pin 8) is low only while PHI2 (U1 pin 37) is high and RWB is high; the skew between RD_WIN_N edges and PHI2 edges is ≤100 ns.
-2. P_D release and enable: after RD_WIN_N rises, the selected memory's outputs are released within 50 ns; the next P_D driver enables no earlier than the next PHI2 rise. Between every pair of windows the lines sit at the pull-up level for a quiet interval of ≥4 µs at 400 kHz.
+1. RD_WIN_N (U18 pin 6) is low only while PHI2 (U1 pin 37) is high and RWB is high; it falls within 100 ns of the PHI2 rise and rises one master period (±100 ns) before PHI2 falls.
+2. P_D release and enable: after RD_WIN_N rises, the selected memory's outputs are released within 50 ns; the next P_D driver enables no earlier than the next PHI2 rise. Every address change at a PHI2 fall happens with all P_D output enables already inactive, and between windows the lines sit at the pull-up level for at least three master periods.
 3. U4 outputs enable only while PHI2 is high in write cycles and release within 50 ns of PHI2 falling.
-4. C_D hold: during a read cycle the data at U1 pins 26–33 holds unchanged from the EARLY→LATE edge through at least 2 µs after PHI2 falls; during PRE the lines rise toward the pull-up level.
-5. Write→read: between the CPU releasing C_D (within 50 ns of PHI2 falling) and U44 enabling (next PHI2 rise), the lines sit at the pull-up level for ≥4 µs.
+4. C_D hold: during a read cycle the data at U1 pins 26–33 holds unchanged from the EARLY→MID edge until one master period after PHI2 falls; during GAP and PRE the lines rise toward the pull-up level.
+5. Write→read: between the CPU releasing C_D (within 50 ns of PHI2 falling) and U44 enabling (next PHI2 rise), the lines sit at the pull-up level for at least two master periods.
 6. RWB_CYCLE (U45 pin 5) changes only at PHI2 rising edges and equals RWB of the cycle just started.
-7. Rise times of released lines, 10–90 %: every P_D line ≤0.62 µs, every C_D line ≤1.0 µs. Longer times mean the capacitance budget of Section 6.5 is exceeded.
+7. Rise times of released lines, 10–90 %: every P_D line and every C_D line ≤3 µs (the HCT 500 ns/V input-transition limit; about 320 pF on P_D and 150 pF on C_D). Expect roughly 0.7 µs and 0.8 µs on a correctly wired board. Longer times mean excess capacitance (Section 6.5).
 8. Contention signature: on every transition type, no data line shows a sustained intermediate level (0.8–2.0 V) for more than 20 ns, and the 5 V rail shows no step larger than 50 mV at PHI2 edges.
 
-Any failed item is fixed and re-measured before step 4 of Section 11.1 proceeds. These measurements replace the revision 0.2 Boolean argument; a truth table does not prove analog bus timing.
+Any failed item is fixed and re-measured before step 4 of Section 11.1 proceeds. These measurements replace the revision 0.2 Boolean argument; a truth table or a digital simulation does not prove analog bus timing.
 
 ### 11.3 Small diagnostic ROM generator
 
@@ -1163,6 +1186,6 @@ Datasheet facts were checked on 26 October 2026. The connection choices, placeme
 
 The earlier public mathematical reference passed three exact RFC vectors, fourteen comparisons with an independent Ed25519 implementation, signature/message tamper checks, changed-read and wrong-key rejection, and 200 modular-multiplication checks. Those results do not verify the 6502 program, this breadboard, or the transaction parser.
 
-For this revision, the bus-interface model of Section 6.5 was checked by enumerating the four Johnson states against both cycle types and both values of RWB_CYCLE: in every state at most one device drives P_D and at most one drives C_D, and every change of driver on either bus passes through at least one state with no driver. The pull-up and oscillator figures are computed from the stated RC values. The corrected acceptance vector was recomputed from the published seed with an independent Ed25519 implementation. The diagnostic byte image is unchanged and its hash reproduces. The placement table was re-checked for row overlap after adding BB10.
+For revision 0.3, the bus-interface model of Section 6.5 was checked by enumerating the four Johnson states against both cycle types and both values of RWB_CYCLE: in every state at most one device drives P_D and at most one drives C_D, and every change of driver on either bus passes through at least one state with no driver. The pull-up and oscillator figures are computed from the stated RC values. The corrected acceptance vector was recomputed from the published seed with an independent Ed25519 implementation. The diagnostic byte image is unchanged and its hash reproduces. The placement table was re-checked for row overlap after adding BB10.
 
-These are document/design checks, not a circuit simulation, assembled-board test, or analog timing proof. The handoff guarantees of Section 6.5 hold only if the measurements of Section 11.2 pass. A real schematic/ERC review and measured electrical qualification remain necessary.
+Revision 0.4 adds a pin-level event-driven simulation (sim/, FINDINGS.md): every IC modelled at its DIP pins from these tables with datasheet delay ranges, a cycle-accurate W65C02S, contention and setup/hold checking, Monte Carlo and forced worst-case delay corners, and a generated hole-level breadboard layout whose physical connectivity is checked against these tables and simulated. These remain design checks, not an assembled-board test or an analog timing proof. A reference Ed25519 firmware for Sections 10.2–10.4 (sim/signer_fw.py) signs Solana legacy messages identically to OpenSSL on a cycle-exact emulator and runs on the gate-level model through MESSAGE_LOCK; it needs about 1.17 × 10⁹ cycles for the full Section 10.2 flow, about 3.7 hours at the 88 kHz worst-case maximum CPU clock (FINDINGS.md F11). The handoff guarantees of Section 6.5 hold only if the measurements of Section 11.2 pass. A real schematic/ERC review and measured electrical qualification remain necessary.

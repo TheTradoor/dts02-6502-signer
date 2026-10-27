@@ -22,6 +22,23 @@ def read_window_trailing_edge(bench):
 
 
 def read_window_six_state_fix(bench):
-    """Same corner, applied to the six-state Johnson variant (RD_WIN_N from U18)."""
+    """Same corner on rev 0.4, where RD_WIN_N comes from U18 gate 2."""
     read_window_trailing_edge(bench)
     bench.sim.parts["U18"]._delays[("tpd", 6)] = 30.0
+
+
+def brownout_write_corner(bench):
+    """Cold clear disables the write buffer U4 (via /Q_A) as fast as possible
+    while the SRAM write strobe (via CPU_RESET_N / EARLY_OK) ends as late as
+    possible: the only way a dip can corrupt the byte being written."""
+    p = bench.sim.parts
+    for k in [("q", 0, True)]:
+        p["U6"]._delays[k] = 6.0                      # HCT74 CLR->Q min
+    p["U6"]._delays[("qn_skew", 0, True)] = 0.0
+    for i in range(8):
+        p["U4"]._delays[("dis", i)] = 8.0             # HCT541 disable min
+    p["U11"]._delays[("tpd", 8)] = 30.0               # CPU_RESET_N
+    p["U11"]._delays[("tpd", 6)] = 30.0               # EARLY_OK
+    p["U11"]._delays[("tpd", 3)] = 30.0               # EARLY
+    p["U10"]._delays[("tpd", 6)] = 30.0               # WR_PHASE_N
+    p["U12"]._delays[("tpd", 11)] = 30.0              # RAM_WE_N

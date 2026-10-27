@@ -4,7 +4,9 @@
   run SCENARIO          boot the test ROM in a scenario and report the board state
   diag                  run the spec's Section 11.3 diagnostic ROM
   handoff               Section 11.2 bus-handoff measurements
-  race                  worst-case read-window corner, rev 0.3 vs six-state fix
+  race                  worst-case read-window corner, rev 0.3 vs rev 0.4
+  sign                  sign a Solana transfer with the 6502 firmware (fast emulator)
+                        and check it against Python RFC 8032 and OpenSSL
   wiring                generate the hole-level breadboard layout + jumper list
                         (wiring/WIRING.md, wiring/wiring.csv) and check it
 """
@@ -20,8 +22,8 @@ from .firmware import SCENARIOS
 
 def _bench_kw(a):
     kw = dict(seed=a.seed, master_hz=a.freq * 1e3)
-    if a.six_state:
-        kw["mutations"] = ["six_state"]
+    if a.rev03:
+        kw["mutations"] = ["rev03"]
     if a.vcd:
         from .vcd import VCD
         kw["vcd"] = VCD(a.vcd)
@@ -120,8 +122,8 @@ def cmd_handoff(a):
 
 def cmd_race(a):
     from .runner import Bench
-    for label, mut, corner in [("rev 0.3", [], corners.read_window_trailing_edge),
-                               ("six-state fix", ["six_state"], corners.read_window_six_state_fix)]:
+    for label, mut, corner in [("rev 0.3", ["rev03"], corners.read_window_trailing_edge),
+                               ("rev 0.4", [], corners.read_window_six_state_fix)]:
         b = Bench(image=specdoc.diagnostic_rom(), symbols={"loop": 0x800A}, seed=a.seed,
                   mutations=mut)
         corner(b)
@@ -151,11 +153,48 @@ def cmd_wiring(a):
     return 1 if (L.errors or con["shorts"] or con["opens"] or problems) else 0
 
 
+def cmd_sign(a):
+    import base64
+    import hashlib
+    from . import ed25519_ref as E, signer_fw as F, solana as SOL
+    from .signer_harness import Fw
+    seed = hashlib.sha256(a.seed_text.encode()).digest()
+    pk = E.public_key(seed)
+    to = SOL.b58decode(a.to) if a.to else E.public_key(hashlib.sha256(b"recipient").digest())
+    bh = SOL.b58decode(a.blockhash) if a.blockhash else hashlib.sha256(b"blockhash").digest()
+    msg = SOL.transfer_message(pk, to, a.lamports, bh)
+    fw = Fw(double_sign=not a.single, verify=not a.no_verify)
+    fw.put(F.SEED, seed)
+    fw.put(F.ENV, F.envelope(msg, pk))
+    cycles = fw.call("sign_main")
+    m = fw.m.m
+    rec = fw.get(F.REC, 256)
+    sig = rec[0x2C:0x6C]
+    ok = (fw.get(F.ZP["STATUS"], 1)[0] == 0 and sig == E.sign(seed, msg)
+          and sig == SOL.openssl_sign(seed, msg) and rec == F.expected_record(msg, pk, sig))
+    print(f"signer   {SOL.b58encode(pk)}  (test seed from text {a.seed_text!r}; never fund it)")
+    print(f"message  {len(msg)} bytes, transfer {a.lamports} lamports")
+    print(f"status   {fw.get(F.ZP['STATUS'], 1)[0]:#04x}  MESSAGE_LOCK={m.msg_lock} RESULT_LOCK={m.res_lock} FAULT={m.fault}")
+    print(f"sig      {SOL.b58encode(sig)}")
+    print(f"matches  python RFC 8032 + OpenSSL + record format: {ok}")
+    print(f"cycles   {cycles:,}  ->  {cycles / 88e3 / 3600:.1f} h at 88 kHz, "
+          f"{cycles / 47e3 / 3600:.1f} h at 47 kHz, {cycles / 1e6 / 60:.0f} min at 1 MHz")
+    print(f"tx       {base64.b64encode(SOL.transaction(sig, msg)).decode()}")
+    return 0 if ok else 1
+
+
 def main(argv=None):
     p = argparse.ArgumentParser(prog="python3 -m sim", description=__doc__,
                                 formatter_class=argparse.RawDescriptionHelpFormatter)
     sub = p.add_subparsers(dest="cmd")
     sub.add_parser("check")
+    sg = sub.add_parser("sign")
+    sg.add_argument("--seed-text", default="DTS-02 public test fixture seed - never fund")
+    sg.add_argument("--to", help="recipient (base58)")
+    sg.add_argument("--blockhash", help="recent blockhash (base58)")
+    sg.add_argument("--lamports", type=int, default=1_000_000)
+    sg.add_argument("--single", action="store_true", help="skip the second signature")
+    sg.add_argument("--no-verify", action="store_true", help="skip on-device verification")
     w = sub.add_parser("wiring")
     w.add_argument("--out", default="wiring")
     for name in ("run", "diag", "handoff", "race"):
@@ -168,11 +207,11 @@ def main(argv=None):
             s.add_argument("--cycles", type=int, default=200)
         s.add_argument("--freq", type=float, default=380, help="master clock, kHz")
         s.add_argument("--seed", type=int, default=1, help="delay Monte Carlo seed")
-        s.add_argument("--six-state", action="store_true", help="apply proposed read-window fix")
+        s.add_argument("--rev03", action="store_true", help="simulate the revision 0.3 wiring instead")
         s.add_argument("--vcd", help="write a GTKWave VCD file")
     a = p.parse_args(argv)
     fn = {"check": cmd_check, "run": cmd_run, "diag": cmd_diag, "handoff": cmd_handoff,
-          "race": cmd_race, "wiring": cmd_wiring}.get(a.cmd or "check")
+          "race": cmd_race, "wiring": cmd_wiring, "sign": cmd_sign}.get(a.cmd or "check")
     return fn(a)
 
 

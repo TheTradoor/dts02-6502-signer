@@ -58,12 +58,12 @@ class TestLayout(unittest.TestCase):
         self.assertLess(max(cap[f"P_D{i}"] for i in range(8)), 120)
         self.assertLess(max(cap[f"C_D{i}"] for i in range(8)), 60)
 
-    def test_finding_phi2_stub_to_bb9_and_buffer_fix(self):
-        _, _, info, _ = LY.harness_checks(L)
+    def test_finding_phi2_stub_rev03_fixed_in_rev04(self):
+        old = LY.generate(mutations=["rev03"])
+        _, _, info, _ = LY.harness_checks(old)
         self.assertIn("BB9", info["PHI2 boards"])
         self.assertGreater(info["PHI2 total mm"], 300)
-        fixed = LY.generate(phi2_fault_buffer=True)
-        _, _, info2, _ = LY.harness_checks(fixed)
+        _, _, info2, _ = LY.harness_checks(L)
         self.assertEqual(info2["PHI2 boards"], ["BB1"])
         self.assertLess(info2["PHI2 total mm"], 60)
 
@@ -97,8 +97,8 @@ class TestPhysicalSimulation(unittest.TestCase):
         self.assertEqual(b.display_text(), "0123456789AbCdEF")
         self.assertEqual(b.violations(), [])
 
-    def test_phi2_buffer_variant_keeps_fault_latch_working(self):
-        b, _ = phys_bench(layout=LY.generate(phi2_fault_buffer=True), scenario="res_fault", seed=6)
+    def test_result_lock_fault_on_separate_fault_clock(self):
+        b, _ = phys_bench(scenario="res_fault", seed=6)
         b.run_to("done")
         self.assertEqual((b.net("FAULT"), b.net("RESULT_LOCK")), (1, 1))
         self.assertEqual(b.ram.mem[0x0281], 0x40)

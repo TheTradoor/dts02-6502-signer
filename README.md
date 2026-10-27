@@ -1,6 +1,6 @@
 # DTS-02: 65C02 Ed25519 desktop signer, with a simulation of the design
 
-`spec.md` is the DTS-02 revision 0.3 breadboard specification. DTS-02 is a small 65C02 computer meant to be a third, offline Ed25519 signer in a 2-of-3 Squads multisig. It is built from:
+`spec.md` is the DTS-02 revision 0.4 breadboard specification. DTS-02 is a small 65C02 computer meant to be a third, offline Ed25519 signer in a 2-of-3 Squads multisig. It is built from:
 
 - a W65C02S CPU
 - a 32 KiB SRAM and a 32 KiB OTP ROM
@@ -29,6 +29,8 @@ The `sim/` directory is a pure-Python (standard library only) simulation used to
 - **Firmware.**
   - The spec's own Section 11.3 diagnostic ROM, taken directly from the Python block in `spec.md`.
   - A test ROM (`sim/firmware.py`, built by `sim/asm.py`) that implements the spec's Section 10.1 boot and reset state machine and a display driver. On a fresh start it runs the test scenario selected by the DIP switches.
+- **Signing firmware.** `sim/signer_fw.py` is an Ed25519 signer in 65C02 assembly that implements spec Sections 10.2–10.4: constant time for secrets, double signature, on-device verification, CRC'd result record and bank locks. It runs on a C emulator (`sim/emu65.c`, built automatically with `cc`) at hundreds of millions of cycles per second, and is checked against Python RFC 8032 and OpenSSL on real Solana transfer messages. Both CPU models pass Klaus Dormann's 6502/65C02 conformance tests with identical cycle counts.
+- **Brownout.** `sim/brownout.py` injects supervisor resets into SRAM write strobes.
 - **Static checks.** An electrical rule check of the netlist, a re-check of the Section 3.3 placement table, BOM quantities against the netlist, a closed-form analog analysis (`sim/analog.py`), and an independent RFC 8032 implementation (`sim/ed25519_ref.py`).
 
 **The breadboard itself.** `sim/layout.py` places every IC per Section 3.3 and every passive part into a specific hole, then routes every net as point-to-point jumpers. The result is `wiring/WIRING.md`, a hole-by-hole build list. The netlist is then rebuilt from physical connectivity alone (5-hole strips, split rails, wires) and checked for shorts, opens, hole budget, harness rules and wire lengths. The simulator can run on this physical netlist (`Bench(physical=...)`), and tests inject typical build mistakes to confirm they're caught.
@@ -37,7 +39,7 @@ Some parts are behavioral stand-ins: the RC oscillator, the MCP130 supervisor, t
 
 ## Running it
 
-Requires Python 3.9 or later and nothing else.
+Requires Python 3.9 or later and a C compiler (`cc`) for the fast emulator. `python3 -m sim sign` and its tests also need the `openssl` CLI.
 
 ```sh
 python3 -m sim check                        # static, document and analog checks (seconds)
@@ -45,9 +47,11 @@ python3 -m sim diag --switch 0xA5           # run the spec's diagnostic ROM on t
 python3 -m sim run font                     # boot the test ROM; scenario chosen via the DIP switches
 python3 -m sim run msg_fault --reset        # lock, fault, then press CPU RESET
 python3 -m sim handoff                      # Section 11.2 bus-handoff measurements
-python3 -m sim race                         # worst-case read-window corner: rev 0.3 vs proposed fix
+python3 -m sim race                         # worst-case read-window corner: rev 0.3 vs rev 0.4
 python3 -m sim wiring                       # regenerate wiring/WIRING.md + wiring.csv (hole-level build list) and check it
-python3 -m unittest discover -s tests -v    # full test suite: 66 tests, about 4.5 minutes
+python3 -m sim sign --lamports 5000         # sign a Solana transfer on the emulated 65C02, check vs RFC 8032 + OpenSSL
+./tools/fetch_klaus.sh                      # optional: fetch Klaus Dormann's CPU test ROMs for tests/test_emu.py
+python3 -m unittest discover -s tests -v    # full test suite: 83 tests, about 7.5 minutes
 ```
 
 Scenarios for `run`: `idle`, `ram`, `msg_fault`, `res_fault`, `msg_frozen`, `record_ok`, `record_bad`, `mirrors`, `font`.
@@ -55,7 +59,7 @@ Scenarios for `run`: `idle`, `ram`, `msg_fault`, `res_fault`, `msg_frozen`, `rec
 Options shared by `run`, `diag`, `handoff` and `race`:
 - `--freq KHZ`: master clock, default 380
 - `--seed N`: delay Monte Carlo draw
-- `--six-state`: apply the read-window fix proposed in `FINDINGS.md`
+- `--rev03`: simulate the revision 0.3 wiring instead (to reproduce the findings that led to rev 0.4)
 - `--vcd out.vcd`: write a waveform you can open in GTKWave
 
 Throughput is about 1,500 simulated CPU cycles per second.
@@ -63,19 +67,23 @@ Throughput is about 1,500 simulated CPU cycles per second.
 ## Layout
 
 ```
-spec.md            the design under test (rev 0.3, verbatim)
+spec.md            the design under test (rev 0.4; rev 0.3 is in git history)
 FINDINGS.md        verification results and recommended changes
 wiring/WIRING.md   generated hole-level breadboard build list (also wiring.csv)
 sim/engine.py      event kernel, nets, contention and timing checks
 sim/parts.py       pin-level IC models
-sim/cpu65c02.py    W65C02S core and bus-timing wrapper
+sim/cpu65c02.py    W65C02S core (full instruction set) and bus-timing wrapper
 sim/board.py       netlist transcribed from spec.md, plus fault-injection variants
 sim/firmware.py    boot/test ROM source (Section 10.1 state machine, display driver, CRC-32)
-sim/asm.py         small two-pass 65C02 assembler
+sim/asm.py         two-pass 65C02 assembler (full instruction set, range-checked)
 sim/analog.py      oscillator, reset RC, pull-up, power and display arithmetic
 sim/checks.py      ERC, placement, BOM, waveform measurement helpers
 sim/handoff.py     Section 11.2 measurements
 sim/corners.py     forced worst-case delay corners
 sim/layout.py      hole-level layout, jumper routing, physical connectivity
+sim/signer_fw.py   Ed25519 signing firmware generator (65C02 assembly)
+sim/emu65.c        fast C W65C02S emulator with the spec's I/O, locks and fault (sim/emu.py wraps it)
+sim/solana.py      Solana legacy message construction, OpenSSL cross-check
+sim/brownout.py    power-dip injection
 tests/             unittest suite
 ```

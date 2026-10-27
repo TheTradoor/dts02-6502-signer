@@ -207,8 +207,8 @@ class Layout:
 # generation
 # ---------------------------------------------------------------------------
 
-def schematic():
-    sim, _ = build(bytes(32768))
+def schematic(mutations=()):
+    sim, _ = build(bytes(32768), mutations=mutations)
     terms = {}
     kinds = {}
     for p in sim.parts.values():
@@ -218,22 +218,17 @@ def schematic():
     return terms, kinds, sim
 
 
-def generate(grid=None, moves=None, cd_pullups_at_cpu=False, phi2_fault_buffer=False,
+def generate(grid=None, moves=None, cd_pullups_at_cpu=False, mutations=(),
              pd_rows=range(36, 44)):
     """grid: board arrangement override; moves: {ic: new pin-1 row} placement
-    overrides; the two flags apply layout recommendations from FINDINGS.md."""
+    overrides; cd_pullups_at_cpu applies the F9 suggestion; mutations selects a
+    schematic variant (e.g. ["rev03"])."""
     ACTIVE_GRID.clear()
     ACTIVE_GRID.update(grid or GRID)
     L = Layout()
     L.variant = dict(grid=grid, moves=moves, cd_pullups_at_cpu=cd_pullups_at_cpu,
-                     phi2_fault_buffer=phi2_fault_buffer)
-    terms, kinds, esim = schematic()
-    if phi2_fault_buffer:
-        # U38 clock from a spare U7 gate (pin 3 in = /Q_A, pin 4 out), keeping the
-        # CPU PHI2 net on BB1
-        terms[("U7", 3)] = "QA_N"
-        terms[("U7", 4)] = "PHI2_FAULT"
-        terms[("U38", 3)] = "PHI2_FAULT"
+                     mutations=tuple(mutations))
+    terms, kinds, esim = schematic(mutations)
     L.terminals = terms
 
     # ---- ICs at Section 3.3 positions --------------------------------------
@@ -573,7 +568,7 @@ def wire_report(L):
     return by_net, boards, phi2_seg
 
 
-LOCK_INTERFACE = {"A13", "A14", "RAM_SELECT", "nRWB", "PHI2", "COLD_CLEAR_N", "CPU_RESET_N",
+LOCK_INTERFACE = {"A13", "A14", "RAM_SELECT", "nRWB", "PHI2_FAULT", "COLD_CLEAR_N", "CPU_RESET_N",
                   "Y3_N", "Y4_N", "WR_PHASE_N", "WRITE_BLOCK", "MESSAGE_LOCK",
                   "RESULT_LOCK", "FAULT", "FAULT_N"}
 
@@ -610,13 +605,18 @@ def harness_checks(L):
     info["P_D max line mm"] = max(by_net[n] for n in P_D)
     info["PHI2 total mm"] = by_net["PHI2"]
     info["PHI2 boards"] = sorted(boards["PHI2"])
+    # rev 0.4 limits (Sections 3.2, 6.5, 11.2): PHI2 segment length and the HCT
+    # input-transition limit expressed as capacitance per pulled-up bus line
+    cap = physical_netlist(L)[3]
+    info["P_D max pF"] = max(cap[n] for n in P_D)
+    info["C_D max pF"] = max(cap[n] for n in C_D)
     targets = []
     if phi2_seg and phi2_seg > 50:
-        targets.append(f"PHI2 U7->U1 {phi2_seg:.0f} mm > 50 mm target")
-    if info["C_D max line mm"] > 100:
-        targets.append(f"C_D line {info['C_D max line mm']:.0f} mm > 100 mm target")
-    if info["P_D max line mm"] > 250:
-        targets.append(f"P_D line {info['P_D max line mm']:.0f} mm > 250 mm target")
+        targets.append(f"PHI2 U7->U1 {phi2_seg:.0f} mm > 50 mm")
+    if info["P_D max pF"] > 320:
+        targets.append(f"P_D {info['P_D max pF']:.0f} pF > 320 pF")
+    if info["C_D max pF"] > 150:
+        targets.append(f"C_D {info['C_D max pF']:.0f} pF > 150 pF")
     return problems, targets, info, by_net
 
 
@@ -672,8 +672,8 @@ def write_docs(L, outdir):
     a(f"- Hole allocation errors (double use, full strip, full rail half): {len(L.errors)}.")
     a(f"- Physical connectivity vs schematic: {len(con['shorts'])} shorts, {len(con['opens'])} opens.")
     a(f"- Section 3.4 harness rules: {'pass' if not problems else problems}.")
-    a(f"- Section 3.2 length targets: {'met' if not targets else '; '.join(targets)} "
-      "(see FINDINGS.md F9).")
+    a(f"- Section 3.2 / 6.5 limits (PHI2 segment ≤50 mm, P_D ≤320 pF, C_D ≤150 pF): "
+      f"{'met' if not targets else '; '.join(targets)}.")
     a(f"- Estimated line capacitance: P_D max {max(cap[n] for n in P_D):.0f} pF, "
       f"C_D max {max(cap[n] for n in C_D):.0f} pF.")
     a("- The simulator runs the test firmware on the netlist derived from this list "

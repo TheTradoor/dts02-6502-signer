@@ -1,4 +1,8 @@
-"""DTS-02 rev 0.3 netlist, transcribed pin-by-pin from spec.md.
+"""DTS-02 rev 0.4 netlist, transcribed pin-by-pin from spec.md.
+
+mutations=["rev03"] rebuilds the revision 0.3 wiring (four-state phase
+generator, RD_WIN_N from U10, U38 clocked from the CPU PHI2 net) so the
+findings that motivated revision 0.4 stay reproducible.
 
 Every dict below is {DIP pin: net name}.  Section references point at the
 table each entry comes from.  `mutations` lets tests deliberately break the
@@ -111,13 +115,15 @@ def build(rom_image, master_hz=380e3, seed=1, bb9=True, reset_delay_ns=None,
     Source(sim, "OSC_RC_NODE", "OSC_RC", 0)   # RC node; gate 1 is behavioural
 
     # ---- U6 Johnson counter, Section 5.5 -------------------------------
-    six = "six_state" in mut     # proposed fix: 3-stage Johnson, RD window ends early
+    rev03 = "rev03" in mut
+    six = not rev03              # rev 0.4: 3-stage Johnson, RD window ends a period early
     HCT74(sim, "U6", {1: "COLD_CLEAR_N", 2: "QC_N" if six else "QB_N", 3: "MASTER_CLK", 4: VCC,
                       5: "Q_A", 6: "QA_N", 7: GND, 8: "QB_N", 9: "Q_B", 10: VCC,
                       11: "MASTER_CLK", 12: "Q_A", 13: "COLD_CLEAR_N", 14: VCC})
 
     # ---- U7 PHI2 buffer, Section 5.4 -----------------------------------
-    Inv6(sim, "U7", {1: "QA_N", 2: "PHI2", 3: GND, 5: GND, 9: GND, 11: GND,
+    Inv6(sim, "U7", {1: "QA_N", 2: "PHI2", 3: GND if rev03 else "QA_N",
+                     4: None if rev03 else "PHI2_FAULT", 5: GND, 9: GND, 11: GND,
                      13: GND, 14: VCC, 7: GND}, "AC14")
 
     # ---- U8 INV, Section 7.1 -------------------------------------------
@@ -237,7 +243,7 @@ def build(rom_image, master_hz=380e3, seed=1, bb9=True, reset_delay_ns=None,
                            10: VCC, 12: VCC, 14: VCC, 3: "SET_MESSAGE_N",
                            5: "MESSAGE_LOCK", 6: None, 7: GND, 8: None,
                            9: "RESULT_LOCK", 11: "SET_RESULT_N"})
-        HCT74(sim, "U38", {1: "COLD_CLEAR_N", 2: "FAULT_NEXT", 3: "PHI2", 4: VCC,
+        HCT74(sim, "U38", {1: "COLD_CLEAR_N", 2: "FAULT_NEXT", 3: "PHI2" if rev03 else "PHI2_FAULT", 4: VCC,
                            10: VCC, 13: VCC, 14: VCC, 5: "FAULT", 6: "FAULT_N",
                            7: GND, 11: GND, 12: GND, 8: None, 9: None})
         HCT157(sim, "U39", {1: A[13], 2: "MESSAGE_LOCK", 3: "RESULT_LOCK",

@@ -1,6 +1,8 @@
 # DTS-02 rev 0.3: verification findings
 
-These results come from the simulation and checks in `sim/` (see `README.md`), run against `spec.md`. Each finding names the test that reproduces it.
+These results come from the simulation and checks in `sim/` (see `README.md`), run against revision 0.3 of `spec.md`. Each finding names the test that reproduces it.
+
+**Status:** revision 0.4 of `spec.md` incorporates F1, F2, F3, F4, F5, F6, F7, F9 and F10. F11 and F12 came from the later firmware and brownout work and are open decisions. The simulator now models rev 0.4 by default; pass `--rev03` (or `mutations=["rev03"]`) to reproduce the rev 0.3 behavior described here. F8 is informational.
 
 ## Summary
 
@@ -8,7 +10,7 @@ The core architecture holds up. The spec's pin tables wire up into a working com
 
 The one substantive issue is that rev 0.3's central claim is not fully guaranteed. Section 6.5 says chip selects change only while every output enable is inactive. At datasheet delay corners there is still a tens-of-nanoseconds race at the trailing edge of the read window (F1). It does not change function, but it does violate the spec's own acceptance limit. Moving one spare flip-flop and one spare gate already on the BOM fixes it, and that fix was verified in simulation.
 
-The other findings are text and number corrections, plus two layout issues found by generating the hole-level wiring list (F9, F10).
+The other findings are text and number corrections, plus two layout issues found by generating the hole-level wiring list (F9, F10). The added signing firmware shows the design can sign Solana transactions correctly, but at the specified clock one spec-compliant signature takes hours (F11).
 
 ## Findings
 
@@ -32,7 +34,8 @@ The other findings are text and number corrections, plus two layout issues found
   - The state sequence is 000→100→110→111→011→001, so PHI2 is high for three of six master periods. The CPU clock becomes master/6, so the 100 kHz CPU ceiling allows a 600 kHz master.
   - The read window covers states 100 and 110. P_D quiet time grows to three master periods.
   - Caveat: a three-stage Johnson counter has an illegal two-state loop (010↔101). COLD_CLEAR_N clears it at power-up; making it self-correcting takes one more gate.
-  - Verified at the same corner: zero overlaps. All scenarios and Section 11.2 measurements pass (`--six-state`; `test_six_state_fix_has_no_overlap`).
+  - Verified at the same corner: zero overlaps. All scenarios and Section 11.2 measurements pass (`python3 -m sim race`; `test_six_state_fix_has_no_overlap`).
+- **Status:** fixed in rev 0.4. A 560 pF oscillator capacitor keeps the CPU clock at or below 100 kHz with the six-state divider.
 - **Lower-margin alternative:** build U10 as a 74AC00. Its roughly 10 ns maximum makes the worst-case margin positive, but only by about 5 ns.
 
 ### F2. Low: the oscillator's stated range is a typical value, not a bound
@@ -41,6 +44,7 @@ The other findings are text and number corrections, plus two layout issues found
 - **Evidence:** SN74HC14 thresholds at 4.5 V are VT+ 1.55–3.15 V, VT− 0.9–2.45 V and ΔVT 0.4–2.1 V. With those, 5 % R and C tolerance, and stray capacitance, 10 kΩ / 330 pF gives **127–890 kHz**, and a third of the corners exceed 400 kHz (`python3 -m sim check`).
 - **Impact:** the clock does not need the limit. The design simulates clean from 127 kHz up to an 8–12 MHz master (`TestMargins`, `TestDiagnosticRom.test_monte_carlo_delays_and_clock_corners`). The risk is that a stock part fails the Section 5.3 ≤ 400 kHz acceptance check, and that firmware debounce timing scales with the clock.
 - **Fix:** either keep "measure and trim" as the stated rule and drop the range claim, or use 820 pF (worst case 52–363 kHz). With the F1 fix, the ceiling becomes 600 kHz master.
+- **Status:** fixed in rev 0.4 with 560 pF: 76–530 kHz master, 13–88 kHz CPU.
 
 ### F3. Low: the P_D capacitance budget and rise-time acceptance are tighter than the design needs
 
@@ -93,6 +97,51 @@ None of this matters electrically. The estimated load is about 70 pF per P_D lin
 U38's clock is the CPU PHI2 net (Section 9.2, "PHI2 for U38 pin 3 is U7 pin 2"), and U38 sits on BB9 at the far end of the north row. In the generated layout PHI2 totals about 440 mm, of which only about 48 mm is the U7→U1 segment. That leaves a roughly 400 mm stub hanging off the net that must give the W65C02S a ≤5 ns edge, which is a ringing and edge-rate risk (Section 5.4).
 
 **Fix (no new parts):** clock U38 from a spare U7 gate. U7 pin 3 = /Q_A (U6 pin 6), and pin 4 = PHI2_FAULT → U38 pin 3. The CPU PHI2 net then stays on BB1, about 48 mm. This was verified in simulation: the fault latch still works with the split clock (`test_phi2_buffer_variant_keeps_fault_latch_working`).
+
+### F11. High (usability): a spec-compliant signature takes hours at the specified clock
+
+The reference firmware (`sim/signer_fw.py`, below) implements Section 10.2 exactly as specified: constant time for secrets with no secret-indexed tables, two deterministic signatures compared byte-for-byte, and on-device verification before release. Measured on the cycle-exact emulator, signing a 150-byte Solana transfer takes **1.17 × 10⁹ CPU cycles**:
+
+| Work | Cycles | At 88 kHz (rev 0.4 max) | At 47 kHz (typical) | At 1 MHz |
+|---|---:|---:|---:|---:|
+| One signature (derive A, R, S) | 0.30 × 10⁹ | 0.9 h | 1.8 h | 5 min |
+| Spec flow: two signatures + verify | 1.17 × 10⁹ | 3.7 h | 6.9 h | 19 min |
+
+The dominant costs:
+- **Field multiplication:** about 155k cycles. The 6502 has no multiply instruction, and a constant-time shift-and-add over 256 bits is the price of avoiding secret-indexed tables.
+- **Inversion:** about 41M cycles per point encoding.
+- **Verification:** about 574M cycles, mostly in the variable-base [k]A.
+
+The digital logic simulates cleanly with the CPU at roughly 1.3 MHz (an 8 MHz master), so the 100 kHz ceiling is a breadboard signal-integrity margin, not a logic limit.
+
+Options, roughly in order of effect:
+1. Qualify a faster clock on soldered construction.
+2. Use a table-based multiply for verification only, which handles only public data.
+3. Add a dedicated squaring routine; squarings dominate inversions and doublings.
+4. Reconsider the duplicate signature, since verification already detects computation faults.
+
+### F12. Info: a power dip during a write can disturb one extra SRAM byte
+
+An asynchronous cold clear drops PHI2 within tens of nanoseconds. The SRAM write strobe ends through a longer gate chain, so at delay corners the CPU's next-cycle address reaches the SRAM while WE is still low, and that byte can be written with indeterminate data (`tests/test_brownout.py`). In every simulated dip:
+- no write strobe starts while reset is held;
+- locks and FAULT clear;
+- the firmware performs a clean fresh boot.
+
+This is harmless under Section 10.1, because a cold clear always starts a new session and RAM is never trusted afterwards. A live-key design must keep that rule.
+
+## Signing firmware verification
+
+The spec ships no signing firmware, so `sim/signer_fw.py` implements Sections 10.2–10.4 in 65C02 assembly (generated and assembled by `sim/asm.py`) to answer whether this computer can sign Solana transactions. It answers yes, slowly (F11).
+
+- **Envelope:** validates magic, profile, reserved byte, length and CRC-32, then copies M to $4000 and the metadata to $5000, then sets MESSAGE_LOCK.
+- **Signing:** derives A and refuses unless it equals the expected key. Signs twice and compares, verifies with k recomputed from the frozen message, writes the $6000 record with CRC-32, sets RESULT_LOCK and wipes $0200–$3FFF.
+- **Correctness:** RFC 8032 vectors 1–3 match byte-for-byte. Solana legacy transfer, durable-nonce transfer and 1,167-byte messages are signed through the full flow. Each signature equals both the independent Python RFC 8032 implementation and **OpenSSL 3.0**, OpenSSL verifies it, and the result record matches Section 10.4 exactly.
+- **Lock discipline:** the emulator enforces the Section 9 bank locks and FAULT, and the firmware never writes a locked bank (0 blocked writes).
+- **Fail closed:** bad CRC, wrong expected key, disabled profile, nonzero reserved byte, oversize length and bad magic each refuse to sign, set no RESULT_LOCK and wipe scratch. The verifier rejects tampered R or S, S+L malleability, a different message and a different key.
+- **On the board model:** the firmware runs on the gate-level board from reset through envelope validation to MESSAGE_LOCK with zero contention or timing violations. Instruction count and the whole SRAM image are identical to the fast emulator.
+- **CPU validation:** both CPU models (Python bus model and C emulator) pass Klaus Dormann's 6502 functional test and 65C02 extended-opcode test with identical cycle counts.
+
+Not covered: the review UI (field pages, NEXT/BACK/APPROVE), the Solana/Squads policy parser of profiles 1–2, and seed entry. In the simulation the seed is placed at $3F00 to stand in for the undefined local entry mechanism.
 
 ## Breadboard layout verification
 

@@ -1,45 +1,41 @@
-"""Minimal two-pass 65C02 assembler for the test firmware.
+"""Two-pass 65C02 assembler for the test and signing firmware.
+
+The opcode table is derived from sim/cpu65c02.OPTABLE, the same table the
+Klaus-Dormann-validated CPU core executes, so assembler and core cannot
+disagree about an encoding.
 
 Syntax: one statement per line, `label:` prefixes, `;` comments,
-`.org $8000`, `.byte a, b, ...`, `.word x`, `NAME = expr`.
-Operands: #imm, zp/abs (an explicit 2-hex-digit `$xx` literal selects zero
-page), abs,X  abs,Y  (zp),Y, A (accumulator).  Expressions: $hex, %bin,
-decimal, 'c', labels/constants, + and -, <expr (low byte), >expr (high byte).
+`.org $8000`, `.byte a, b, ...`, `.word x`, `.res n` (n zero bytes),
+`.align n`, `NAME = expr`.
+Operands: #imm, zp, zp,X, zp,Y, abs, abs,X, abs,Y, (zp,X), (zp),Y, (zp),
+(abs) and (abs,X) for JMP, A or nothing for accumulator shifts, and
+`zp,target` for BBRn/BBSn.  Zero page is chosen automatically when the
+operand is known on the first pass to be below $100 and the instruction has
+a zero-page form, except that a 4-digit hex literal ($0012) forces absolute;
+the choice is frozen so both passes agree on sizes.  INC A / DEC A assemble
+to the 65C02 accumulator forms.
+Expressions: $hex, %bin, decimal, 'c', labels/constants, + - * and parentheses
+are not supported beyond <expr / >expr (low / high byte).
+
+Every operand and data value is range-checked on the final pass: values
+that do not fit their encoding raise AsmError instead of being truncated.
+(Credit: the silent-truncation bug was reported in PR #1.)
 """
 
 import re
 
-OPS = {
-    "LDA": {"imm": 0xA9, "zp": 0xA5, "abs": 0xAD, "absx": 0xBD, "absy": 0xB9, "indy": 0xB1},
-    "LDX": {"imm": 0xA2, "zp": 0xA6, "abs": 0xAE},
-    "LDY": {"imm": 0xA0, "zp": 0xA4, "abs": 0xAC},
-    "STA": {"zp": 0x85, "abs": 0x8D, "absx": 0x9D, "absy": 0x99, "indy": 0x91},
-    "STX": {"zp": 0x86, "abs": 0x8E},
-    "STY": {"zp": 0x84, "abs": 0x8C},
-    "STZ": {"zp": 0x64, "abs": 0x9C},
-    "CMP": {"imm": 0xC9, "zp": 0xC5, "abs": 0xCD, "absx": 0xDD, "absy": 0xD9},
-    "CPX": {"imm": 0xE0},
-    "CPY": {"imm": 0xC0},
-    "AND": {"imm": 0x29, "abs": 0x2D},
-    "ORA": {"imm": 0x09, "abs": 0x0D},
-    "EOR": {"imm": 0x49, "abs": 0x4D, "absx": 0x5D},
-    "ADC": {"imm": 0x69},
-    "SBC": {"imm": 0xE9},
-    "BIT": {"abs": 0x2C},
-    "INC": {"zp": 0xE6},
-    "DEC": {"zp": 0xC6},
-    "JMP": {"abs": 0x4C},
-    "JSR": {"abs": 0x20},
-}
-IMPLIED = {"INX": 0xE8, "INY": 0xC8, "DEX": 0xCA, "DEY": 0x88, "TAX": 0xAA,
-           "TXA": 0x8A, "TAY": 0xA8, "TYA": 0x98, "TXS": 0x9A, "TSX": 0xBA,
-           "SEI": 0x78, "CLI": 0x58, "CLD": 0xD8, "SEC": 0x38, "CLC": 0x18,
-           "NOP": 0xEA, "RTS": 0x60, "PHA": 0x48, "PLA": 0x68, "PHP": 0x08,
-           "PLP": 0x28, "BRK": 0x00, "RTI": 0x40}
-ACCUM = {"ASL": 0x0A, "LSR": 0x4A, "ROL": 0x2A, "ROR": 0x6A}
-BRANCH = {"BPL": 0x10, "BMI": 0x30, "BVC": 0x50, "BVS": 0x70, "BCC": 0x90,
-          "BCS": 0xB0, "BNE": 0xD0, "BEQ": 0xF0, "BRA": 0x80}
-SIZE = {"imm": 2, "zp": 2, "abs": 3, "absx": 3, "absy": 3, "indy": 2}
+from .cpu65c02 import OPTABLE
+
+SIZE = {"imp": 1, "acc": 1, "imm": 2, "zp": 2, "zpx": 2, "zpy": 2, "abs": 3, "absx": 3,
+        "absy": 3, "indx": 2, "indy": 2, "indz": 2, "ind": 3, "indabsx": 3, "rel": 2,
+        "zprel": 3}
+
+OPS = {}
+for _code, (_m, _mode) in OPTABLE.items():
+    if _m in ("NOP",) and _code != 0xEA:
+        continue                       # undefined-opcode NOPs are not assemblable
+    OPS.setdefault(_m, {})[_mode] = _code
+ZP_TWIN = {"abs": "zp", "absx": "zpx", "absy": "zpy"}
 
 
 class AsmError(Exception):
@@ -53,23 +49,30 @@ class Assembler:
         self.size = size
         self.fill = fill
         self.symbols = dict(symbols or {})
+        self.mode_choice = {}
 
+    # ---- expressions ---------------------------------------------------------
     def eval(self, expr, final):
         expr = expr.strip()
         if expr.startswith("<"):
             return self.eval(expr[1:], final) & 0xFF
         if expr.startswith(">"):
             return (self.eval(expr[1:], final) >> 8) & 0xFF
-        terms = re.split(r"(?<=[^+\-])\s*([+\-])\s*", expr)
-        total, sign = 0, 1
+        terms = re.split(r"(?<=[^+\-*])\s*([+\-*])\s*", expr)
+        total, op = None, "+"
         for tok in terms:
-            if tok == "+":
-                sign = 1
+            if tok in "+-*":
+                op = tok
                 continue
-            if tok == "-":
-                sign = -1
-                continue
-            total += sign * self.atom(tok.strip(), final)
+            v = self.atom(tok.strip(), final)
+            if total is None:
+                total = v if op == "+" else -v
+            elif op == "+":
+                total += v
+            elif op == "-":
+                total -= v
+            else:
+                total *= v
         return total
 
     def atom(self, tok, final):
@@ -85,25 +88,55 @@ class Assembler:
             return self.symbols[tok]
         if final:
             raise AsmError(f"undefined symbol {tok!r}")
-        return 0x8000
+        raise _Unresolved()
 
-    def mode(self, mnem, arg, final):
+    def try_eval(self, expr, final):
+        try:
+            return self.eval(expr, final), True
+        except _Unresolved:
+            return 0x8000, False
+
+    # ---- operand modes ---------------------------------------------------------
+    def mode(self, mnem, arg, final, key):
         arg = arg.strip()
+        forms = OPS[mnem]
+        if arg == "" or arg.upper() == "A":
+            if "acc" in forms:
+                return "acc", None
+            if "imp" in forms:
+                return "imp", None
         if arg.startswith("#"):
-            return "imm", self.eval(arg[1:], final)
+            v, _ = self.try_eval(arg[1:], final)
+            return "imm", v
+        m = re.fullmatch(r"\((.+)\s*,\s*[xX]\)", arg)
+        if m:
+            v, _ = self.try_eval(m.group(1), final)
+            return ("indabsx" if "indabsx" in forms else "indx"), v
         m = re.fullmatch(r"\((.+)\)\s*,\s*[yY]", arg)
         if m:
-            return "indy", self.eval(m.group(1), final)
+            v, _ = self.try_eval(m.group(1), final)
+            return "indy", v
+        m = re.fullmatch(r"\((.+)\)", arg)
+        if m:
+            v, _ = self.try_eval(m.group(1), final)
+            return ("ind" if "ind" in forms else "indz"), v
         m = re.fullmatch(r"(.+?)\s*,\s*([xXyY])", arg)
         if m:
-            return ("absx" if m.group(2) in "xX" else "absy"), self.eval(m.group(1), final)
-        v = self.eval(arg, final)
-        if re.fullmatch(r"\$[0-9A-Fa-f]{2}", arg) and "zp" in OPS[mnem]:
-            return "zp", v
-        if "abs" not in OPS[mnem] and "zp" in OPS[mnem]:
-            return "zp", v
-        return "abs", v
+            v, known = self.try_eval(m.group(1), final)
+            mode = "absx" if m.group(2) in "xX" else "absy"
+        else:
+            v, known = self.try_eval(arg, final)
+            mode = "abs"
+        if not final:
+            zp = ZP_TWIN[mode]
+            base = m.group(1) if m else arg
+            forced_abs = re.fullmatch(r"\$[0-9A-Fa-f]{4}", base.strip()) is not None
+            use_zp = zp in forms and (mode not in forms or
+                                      (known and 0 <= v < 0x100 and not forced_abs))
+            self.mode_choice[key] = zp if use_zp else mode
+        return self.mode_choice[key], v
 
+    # ---- passes ------------------------------------------------------------------
     def assemble(self):
         for final in (False, True):
             out = bytearray([self.fill] * self.size)
@@ -111,7 +144,7 @@ class Assembler:
             for lineno, raw in enumerate(self.source.splitlines(), 1):
                 line = raw.split(";", 1)[0].strip()
                 try:
-                    pc = self._line(line, pc, out, final)
+                    pc = self._line(line, pc, out, final, lineno)
                 except AsmError as e:
                     raise AsmError(f"line {lineno}: {raw.strip()}: {e}") from None
         self.image = out
@@ -123,7 +156,12 @@ class Assembler:
             raise AsmError(f"address ${pc:04X} outside image")
         out[off] = b & 0xFF
 
-    def _line(self, line, pc, out, final):
+    @staticmethod
+    def _check(v, bits, what):
+        if not 0 <= v < (1 << bits):
+            raise AsmError(f"{what} out of range ({v}; expected 0..{(1 << bits) - 1})")
+
+    def _line(self, line, pc, out, final, key):
         while True:
             m = re.match(r"([A-Za-z_]\w*):\s*(.*)", line)
             if not m:
@@ -136,52 +174,77 @@ class Assembler:
             return pc
         m = re.fullmatch(r"([A-Za-z_]\w*)\s*=\s*(.+)", line)
         if m:
-            self.symbols[m.group(1)] = self.eval(m.group(2), final)
+            v, known = self.try_eval(m.group(2), final)
+            if known or final:
+                self.symbols[m.group(1)] = v
             return pc
         parts = line.split(None, 1)
         mnem = parts[0].upper()
         arg = parts[1] if len(parts) > 1 else ""
         if mnem == ".ORG":
             return self.eval(arg, True)
+        if mnem == ".RES":
+            n = self.eval(arg, True)
+            for i in range(n):
+                self._put(out, pc + i, 0)
+            return pc + n
+        if mnem == ".ALIGN":
+            n = self.eval(arg, True)
+            return (pc + n - 1) // n * n
         if mnem in (".BYTE", ".WORD"):
-            for item in self._split_args(arg):
-                v = self.eval(item, final)
+            for item in [a.strip() for a in arg.split(",") if a.strip()]:
+                v, _ = self.try_eval(item, final)
+                if final:
+                    self._check(v, 8 if mnem == ".BYTE" else 16, mnem)
+                self._put(out, pc, v)
                 if mnem == ".BYTE":
-                    self._put(out, pc, v)
                     pc += 1
                 else:
-                    self._put(out, pc, v)
                     self._put(out, pc + 1, v >> 8)
                     pc += 2
             return pc
-        if mnem in IMPLIED:
-            self._put(out, pc, IMPLIED[mnem])
-            return pc + 1
-        if mnem in ACCUM and arg.strip().upper() in ("", "A"):
-            self._put(out, pc, ACCUM[mnem])
-            return pc + 1
-        if mnem in BRANCH:
-            tgt = self.eval(arg, final)
+        if mnem not in OPS:
+            raise AsmError(f"unknown mnemonic {mnem}")
+        if mnem in ("INC", "DEC") and arg.strip().upper() == "A":
+            mnem, arg = ("INA" if mnem == "INC" else "DEA"), ""
+        forms = OPS[mnem]
+        if "rel" in forms:
+            tgt, _ = self.try_eval(arg, final)
             off = tgt - (pc + 2)
             if final and not -128 <= off <= 127:
                 raise AsmError(f"branch out of range ({off})")
-            self._put(out, pc, BRANCH[mnem])
+            self._put(out, pc, forms["rel"])
             self._put(out, pc + 1, off & 0xFF)
             return pc + 2
-        if mnem not in OPS:
-            raise AsmError(f"unknown mnemonic {mnem}")
-        mode, v = self.mode(mnem, arg, final)
-        if mode not in OPS[mnem]:
+        if "zprel" in forms:
+            zp_s, tgt_s = [x.strip() for x in arg.split(",", 1)]
+            zp, _ = self.try_eval(zp_s, final)
+            tgt, _ = self.try_eval(tgt_s, final)
+            off = tgt - (pc + 3)
+            if final:
+                self._check(zp, 8, "zero-page operand")
+                if not -128 <= off <= 127:
+                    raise AsmError(f"branch out of range ({off})")
+            self._put(out, pc, forms["zprel"])
+            self._put(out, pc + 1, zp)
+            self._put(out, pc + 2, off & 0xFF)
+            return pc + 3
+        mode, v = self.mode(mnem, arg, final, key)
+        if mode not in forms:
             raise AsmError(f"{mnem} has no {mode} mode")
-        self._put(out, pc, OPS[mnem][mode])
-        self._put(out, pc + 1, v)
-        if SIZE[mode] == 3:
+        n = SIZE[mode]
+        if final and n > 1:
+            self._check(v, 8 * (n - 1), f"{mode} operand")
+        self._put(out, pc, forms[mode])
+        if n > 1:
+            self._put(out, pc + 1, v)
+        if n == 3:
             self._put(out, pc + 2, v >> 8)
-        return pc + SIZE[mode]
+        return pc + n
 
-    @staticmethod
-    def _split_args(arg):
-        return [a for a in (x.strip() for x in arg.split(",")) if a]
+
+class _Unresolved(Exception):
+    pass
 
 
 def assemble(source, **kw):
