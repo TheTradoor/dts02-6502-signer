@@ -2,7 +2,7 @@
 
 These results come from the simulation and checks in `sim/` (see `README.md`), run against revision 0.3 of `spec.md`. Each finding names the test that reproduces it.
 
-**Status:** revision 0.4 of `spec.md` incorporates F1, F2, F3, F4, F5, F6, F7, F9 and F10. F11 and F12 came from the later firmware and brownout work and are open decisions. The simulator now models rev 0.4 by default; pass `--rev03` (or `mutations=["rev03"]`) to reproduce the rev 0.3 behavior described here. F8 is informational.
+**Status:** revision 0.4 of `spec.md` incorporates F1, F2, F3, F4, F5, F6, F7, F9 and F10. F11 and F12 came from the later firmware and brownout work. F11 is partly addressed by firmware optimization; the rest is an open decision. The simulator now models rev 0.4 by default; pass `--rev03` (or `mutations=["rev03"]`) to reproduce the rev 0.3 behavior described here. F8 is informational.
 
 ## Summary
 
@@ -10,7 +10,7 @@ The core architecture holds up. The spec's pin tables wire up into a working com
 
 The one substantive issue is that rev 0.3's central claim is not fully guaranteed. Section 6.5 says chip selects change only while every output enable is inactive. At datasheet delay corners there is still a tens-of-nanoseconds race at the trailing edge of the read window (F1). It does not change function, but it does violate the spec's own acceptance limit. Moving one spare flip-flop and one spare gate already on the BOM fixes it, and that fix was verified in simulation.
 
-The other findings are text and number corrections, plus two layout issues found by generating the hole-level wiring list (F9, F10). The added signing firmware shows the design can sign Solana transactions correctly, but at the specified clock one spec-compliant signature takes hours (F11).
+The other findings are text and number corrections, plus two layout issues found by generating the hole-level wiring list (F9, F10). The added signing firmware shows the design can sign Solana transactions correctly, but at the specified clock one spec-compliant signature takes about two hours (F11).
 
 ## Findings
 
@@ -100,12 +100,26 @@ U38's clock is the CPU PHI2 net (Section 9.2, "PHI2 for U38 pin 3 is U7 pin 2"),
 
 ### F11. High (usability): a spec-compliant signature takes hours at the specified clock
 
-The reference firmware (`sim/signer_fw.py`, below) implements Section 10.2 exactly as specified: constant time for secrets with no secret-indexed tables, two deterministic signatures compared byte-for-byte, and on-device verification before release. Measured on the cycle-exact emulator, signing a 150-byte Solana transfer takes **1.17 × 10⁹ CPU cycles**:
+The reference firmware (`sim/signer_fw.py`, below) implements Section 10.2 exactly as specified: constant time for secrets with no secret-indexed tables, two deterministic signatures compared byte-for-byte, and on-device verification before release. Measured on the cycle-exact emulator, signing a 150-byte Solana transfer took **1.17 × 10⁹ CPU cycles** in the first version and **0.68 × 10⁹** after optimization:
 
-| Work | Cycles | At 88 kHz (rev 0.4 max) | At 47 kHz (typical) | At 1 MHz |
-|---|---:|---:|---:|---:|
-| One signature (derive A, R, S) | 0.30 × 10⁹ | 0.9 h | 1.8 h | 5 min |
-| Spec flow: two signatures + verify | 1.17 × 10⁹ | 3.7 h | 6.9 h | 19 min |
+| Work | First version | Optimized | At 88 kHz (rev 0.4 max) | At 47 kHz (typical) | At 1 MHz |
+|---|---:|---:|---:|---:|---:|
+| One signature, no verify | 0.30 × 10⁹ | 0.26 × 10⁹ | 0.8 h | 1.5 h | 4 min |
+| Spec flow: two signatures + verify | 1.17 × 10⁹ | 0.68 × 10⁹ | 2.1 h | 4.0 h | 11 min |
+
+The optimized firmware stays inside spec Section 10.2 and adds no hardware:
+- **Constant-time squaring.** Cross products are computed once above the diagonal and doubled. It takes 114k cycles against 147k for a general multiply, and squarings dominate inversions and doublings.
+- **Table multiply for verification only.** A quarter-square multiply with 2 KB of ROM tables takes 88k cycles. It is used only inside verification, where every operand is public, through a dispatch vector that is switched back to constant time on every exit path (`test_verify_restores_constant_time_multiply`).
+- **No duplicate [a]B.** The second signature reuses A, which was already checked byte-for-byte against the configured expected key.
+- **Zero-page product buffer.** Every product byte is one cycle faster to store.
+
+The emulator hashes every bus address it touches. `derive` and `sign` produce identical traces and cycle counts for different seeds (`TestConstantTime`), which demonstrates no secret-dependent branches or memory addresses.
+
+Further speed needs a policy decision rather than more code tuning:
+1. **Clock.** This is the largest lever: about 10× from 88 kHz to 1 MHz, which the logic supports but a breadboard may not.
+2. **Secret-indexed tables.** Allowing the quarter-square tables for secret data, which spec Section 10.2 forbids, saves about 0.15 × 10⁹.
+3. **Duplicate signature.** Dropping it saves about 0.13 × 10⁹; verification already detects computation faults.
+4. **Verification against the key.** Checking [S]B = R + [k·a]B with the fixed-base tables saves about 0.1 × 10⁹. It is valid because A = [a]B was already checked against the expected key, but it uses a secret in verification.
 
 The dominant costs:
 - **Field multiplication:** about 155k cycles. The 6502 has no multiply instruction, and a constant-time shift-and-add over 256 bits is the price of avoiding secret-indexed tables.

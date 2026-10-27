@@ -25,11 +25,17 @@ typedef struct {
     uint32_t sr[4];         /* 595 shift registers per bank (32 bits) */
     uint32_t st[4];         /* 595 storage registers per bank */
     uint8_t prev_gpio;
+    uint64_t trace;         /* FNV-1a over every bus address (instruction fetches,
+                               operand/data reads and writes): equal traces mean
+                               identical control flow and memory access patterns */
 } M;
+
+#define TRACE(m, a) ((m)->trace = ((m)->trace ^ (uint64_t)(a)) * 0x100000001B3ULL)
 
 enum { FN = 0x80, FV = 0x40, FU = 0x20, FB = 0x10, FD = 0x08, FI = 0x04, FZ = 0x02, FC = 0x01 };
 
 static uint8_t rd(M *m, uint16_t a) {
+    TRACE(m, a);
     if (a >= 0x7F00 && a < 0x8000) {
         switch (a & 7) {
         case 0: return m->switches;
@@ -56,6 +62,7 @@ static void gpio_write(M *m, uint8_t v) {
 }
 
 static void wr(M *m, uint16_t a, uint8_t v) {
+    TRACE(m, a | 0x10000);
     if (a >= 0x8000) return;
     if (a >= 0x7F00) {
         switch (a & 7) {

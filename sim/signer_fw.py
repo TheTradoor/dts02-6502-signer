@@ -40,9 +40,13 @@ ZP = dict(P1=0x10, P2=0x12, P3=0x14, P4=0x16, MASK=0x18, BJ=0x19, JJ=0x1A, KK=0x
           SGN=0x24, ABSD=0x25, EQ=0x26, LEN=0x27, BUFPOS=0x29, PTR=0x2A, CNT=0x2C,
           TOTAL=0x2E, PTR2=0x31, STATUS=0x33, DIGIT=0x34, PROF=0x35, FAILC=0x36,
           SPTR=0x38, KPTR=0x3A, WPTR=0x3C, TT=0x3E,
-          BI=0x48, BK=0x49, VJ=0x4A)        # loop counters of base_mult / verify (fe_mul owns JJ)
+          BI=0x48, BK=0x49, VJ=0x4A,        # loop counters of base_mult / verify (fe_mul owns JJ)
+          MULV=0x4C, SQV=0x4E, ENTV=0x50,   # multiply dispatch vectors, fe_sq_ct row entry
+          QP0=0x52, QP1=0x54, QP2=0x56, QP3=0x58,   # table-multiply row pointers
+          REUSEA=0x5A)
 AKS = 0x0200          # 264 bytes, page aligned
-T64 = 0x0400          # 64-byte product, page aligned
+T64 = 0x0080          # 64-byte product in zero page ($80-$BF): zp,X forms are faster and wrap
+                      # inside page 0, so indexing never adds a data-dependent cycle
 W33 = 0x0440          # 33-byte shift buffer
 FE_BASE = 0x0480      # field-element slots, 32 bytes each, up to $13FF
 SHA = 0x1400          # SHA-512 state and buffers, up to $17FF
@@ -255,30 +259,45 @@ def gen_field(g):
         ptr(g, "P1", W33)
         g("JSR fe_cmov")
     g("RTS")
-    # ---- fe_mul: (P3) = (P1) * (P2) mod p (any inputs < 2^256)
-    g("fe_mul:")
-    # W33 = a (33 bytes), then for k = 0..7: AKS[8i+k] = W33[i]; W33 <<= 1
-    g("LDY #31")
+    gen_mul_family(g)
+
+
+A32 = 0x0310          # copy of the multiplicand (32 bytes)
+DIAG = 0x0340         # 64-byte diagonal of a square
+NB = 0x0380           # complemented multiplier bytes (table multiply)
+ROWB = 0x03A0         # 33-byte row product (table multiply)
+HIMASK = [(0xFF << k) & 0xFF for k in range(8)]
+
+
+def gen_mul_family(g):
+    """fe_mul / fe_sq dispatch through MULV / SQV:
+    *_ct  constant time, no secret-indexed tables (signing)
+    *_qs  quarter-square tables, public data only (verification)"""
+    g("fe_mul: JMP (MULV)", "fe_sq: JMP (SQV)")
+    g("set_ct:", "LDA #<fe_mul_ct", "STA MULV", "LDA #>fe_mul_ct", "STA MULV+1",
+      "LDA #<fe_sq_ct", "STA SQV", "LDA #>fe_sq_ct", "STA SQV+1", "RTS")
+    g("set_fast:", "LDA #<fe_mul_qs", "STA MULV", "LDA #>fe_mul_qs", "STA MULV+1",
+      "LDA #<fe_sq_qs", "STA SQV", "LDA #>fe_sq_qs", "STA SQV+1", "RTS")
+
+    # ---- build_aks: AKS[8i+k] = byte i of ((P1) << k), A32 = (P1)
+    g("build_aks:", "LDY #31")
     l = g.lab("ld")
-    g(f"{l}: LDA (P1),Y", f"STA {W33},Y", "DEY", f"BPL {l}", f"STZ {W33 + 32}")
-    g("LDX #0")
+    g(f"{l}: LDA (P1),Y", f"STA {W33},Y", f"STA {A32},Y", "DEY", f"BPL {l}", f"STZ {W33 + 32}", "LDX #0")
     lk = g.lab("k")
     g(f"{lk}:")
-    # copy W33 into column X of AKS
     for i in range(33):
         g(f"LDA {W33 + i}", f"STA {AKS + 8 * i},X")
-    # W33 <<= 1 (33 bytes) without touching X between ROLs: unrolled
     g("ASL " + str(W33))
     for i in range(1, 33):
         g(f"ROL {W33 + i}")
     g("INX", "CPX #8")
     loop_ne(g, lk)
-    # T64 = 0
     g("LDX #63")
     lz = g.lab("z")
-    g(f"{lz}: STZ {T64},X", "DEX", f"BPL {lz}")
-    # rows
-    g("STZ JJ")
+    g(f"{lz}: STZ {T64},X", "DEX", f"BPL {lz}", "RTS")
+
+    # ---- fe_mul_ct: rows of (a<<k) & mask(bit k of b_j) added at byte offset j
+    g("fe_mul_ct:", "JSR build_aks", "STZ JJ")
     lj = g.lab("j")
     g(f"{lj}: LDY JJ", "LDA (P2),Y", "STA BJ", "LDY #0")
     lb = g.lab("b")
@@ -291,11 +310,119 @@ def gen_field(g):
     loop_ne(g, lb)
     g("INC JJ", "LDA JJ", "CMP #32")
     loop_ne(g, lj)
-    # reduce T64 -> (P3): r = lo + 38*hi with a 16-bit carry (CH:CL)
-    g("STZ CL", "STZ CH", "LDX #0")
+    g("JMP reduce64")
+
+    # ---- fe_sq_ct: cross terms above the diagonal once, doubled, plus diagonal
+    # Row j adds bit k of a_j times (A_hi(j) << k), A_hi(j) = bytes > j of a.
+    # Byte j+1 of that row is (a_{j+1} << k) & $FF = AKS[8(j+1)+k] & HIMASK[k];
+    # bytes j+2..32 equal AKS[8i+k].  Entry into the unrolled adder depends only
+    # on the public row index j.
+    g("fe_sq_ct:", "JSR build_aks", "STZ JJ")
+    lj = g.lab("sj")
+    g(f"{lj}: LDY JJ", f"LDA {A32},Y", "STA BJ", "STZ KK",
+      "LDX JJ", "LDA SQENT_LO,X", "STA ENTV", "LDA SQENT_HI,X", "STA ENTV+1")
+    lb = g.lab("sb")
+    g(f"{lb}: LSR BJ")
+    mask_from_carry(g)
+    g("STA MASK")
+    # first byte: position j+1
+    g("LDA JJ", "ASL A", "ASL A", "ASL A", "CLC", "ADC #8", "ADC KK", "TAY",
+      f"LDA {AKS},Y", "LDX KK", "AND HIMASKT,X", "AND MASK", "STA T0",
+      "LDA JJ", "ASL A", "TAX", "LDA T0", "LDY KK",           # byte j+1 of row j lands at 2j+1
+      "CLC", f"ADC {T64 + 1},X", f"STA {T64 + 1},X", "LDX JJ", "JMP (ENTV)")
+    g("sq_rows:")
+    for i in range(2, 33):
+        g(f"sqe{i}: LDA {AKS + 8 * i},Y", "AND MASK", f"ADC {T64 + i},X", f"STA {T64 + i},X")
+    g("INC KK", "LDA KK", "CMP #8")
+    loop_ne(g, lb)
+    g("INC JJ", "LDA JJ", "CMP #31")
+    loop_ne(g, lj)
+    # double the cross sum
+    g(f"ASL {T64}")
+    for i in range(1, 64):
+        g(f"ROL {T64 + i}")
+    # diagonal: DIAG[2j..2j+1] = a_j^2, constant-time shift-and-add
+    g("LDX #0")
+    ld = g.lab("dg")
+    g(f"{ld}: LDA {A32},X", "STA BJ", "STA T0", "STZ T1", "STZ T2", "STZ T3", "LDY #8")
+    lq = g.lab("dq")
+    g(f"{lq}: LSR BJ")
+    mask_from_carry(g)
+    g("STA MASK", "LDA T0", "AND MASK", "CLC", "ADC T2", "STA T2",
+      "LDA T1", "AND MASK", "ADC T3", "STA T3", "ASL T0", "ROL T1", "DEY", f"BNE {lq}")
+    g("TXA", "ASL A", "TAY", "LDA T2", f"STA {DIAG},Y", "LDA T3", f"STA {DIAG + 1},Y",
+      "INX", "CPX #32", f"BNE {ld}")
+    g("CLC")
+    for i in range(64):
+        g(f"LDA {T64 + i}", f"ADC {DIAG + i}", f"STA {T64 + i}")
+    g("JMP reduce64")
+
+    # ---- fe_mul_qs (public data): a*b = SQ[a+b] - NSQ[a + ~b], row by row
+    g("fe_mul_qs:", "LDY #31")
+    l = g.lab("nb")
+    g(f"{l}: LDA (P2),Y", f"STA {A32},Y", "EOR #$FF", f"STA {NB},Y", "DEY", f"BPL {l}")
+    g("LDX #63")
+    lz = g.lab("qz")
+    g(f"{lz}: STZ {T64},X", "DEX", f"BPL {lz}", "STZ JJ")
+    lr = g.lab("qr")
+    g(f"{lr}: LDY JJ", "LDA (P1),Y")
+    _qs_setrow(g)
+    g("STZ T2")                                # previous high byte
+    for j in range(32):
+        _qs_product(g, f"{A32 + j}", f"{NB + j}")
+        # ROWB[j] = lo + previous hi (+carry folded through T2 chain)
+        g("CLC", "ADC T2", f"STA {ROWB + j}", "LDA T3", "ADC #0", "STA T2")
+    g(f"LDA T2", f"STA {ROWB + 32}")
+    g("LDX JJ", "CLC")
+    for i in range(33):
+        g(f"LDA {ROWB + i}", f"ADC {T64 + i},X", f"STA {T64 + i},X")
+    g("INC JJ", "LDA JJ", "CMP #32")
+    loop_ne(g, lr)
+    g("JMP reduce64")
+
+    # ---- fe_sq_qs (public data): products above the diagonal, doubled, + squares
+    g("fe_sq_qs:", "LDY #31")
+    l = g.lab("sn")
+    g(f"{l}: LDA (P1),Y", f"STA {A32},Y", "EOR #$FF", f"STA {NB},Y", "DEY", f"BPL {l}")
+    g("LDX #63")
+    lz = g.lab("sz")
+    g(f"{lz}: STZ {T64},X", "DEX", f"BPL {lz}", "STZ JJ")
+    lr = g.lab("sr")
+    g(f"{lr}: LDY JJ", f"LDA {A32},Y")
+    _qs_setrow(g)
+    g("STZ T2", "LDX JJ", "INX")                 # columns j = i+1 .. 31
+    lc = g.lab("sc")
+    g(f"{lc}: LDY {A32},X", "LDA (QP0),Y", "STA T0", "LDA (QP2),Y", "STA T1",
+      f"LDY {NB},X", "LDA T0", "SEC", "SBC (QP1),Y", "STA T0", "LDA T1", "SBC (QP3),Y", "STA T3",
+      "LDA T0", "CLC", "ADC T2", f"STA {ROWB},X", "LDA T3", "ADC #0", "STA T2",
+      "INX", "CPX #32", f"BNE {lc}")
+    g("LDA T2", f"STA {ROWB + 32}")
+    # T64[i + j] += ROWB[j] for j = i+1 .. 32, via PT = T64 + i; DEX keeps C
+    g("CLC", f"LDA #<{T64}", "ADC JJ", "STA PTR2", f"LDA #>{T64}", "ADC #0", "STA PTR2+1",
+      "LDA #32", "SEC", "SBC JJ", "TAX", "LDY JJ", "INY", "CLC")
+    la = g.lab("sa")
+    g(f"{la}: LDA {ROWB},Y", "ADC (PTR2),Y", "STA (PTR2),Y", "INY", "DEX", f"BNE {la}")
+    g("INC JJ", "LDA JJ", "CMP #31", f"BEQ {lr}_x", f"JMP {lr}", f"{lr}_x:")
+    g(f"ASL {T64}")
+    for i in range(1, 64):
+        g(f"ROL {T64 + i}")
+    # diagonal squares a_j^2 = SQ[2 a_j]
+    g("LDX #0")
+    ld = g.lab("qd")
+    g(f"{ld}: LDA {A32},X", "ASL A", "TAY", f"BCS {ld}_h",
+      "LDA SQL,Y", "STA T0", "LDA SQH,Y", f"JMP {ld}_s",
+      f"{ld}_h: LDA SQL+256,Y", "STA T0", "LDA SQH+256,Y")
+    g(f"{ld}_s: STA T1", "TXA", "ASL A", "TAY", "LDA T0", f"STA {DIAG},Y", "LDA T1", f"STA {DIAG + 1},Y",
+      "INX", "CPX #32", f"BNE {ld}")
+    g("CLC")
+    for i in range(64):
+        g(f"LDA {T64 + i}", f"ADC {DIAG + i}", f"STA {T64 + i}")
+    g("JMP reduce64")
+
+    # ---- reduce64: (P3) = T64 mod p  (lo + 38*hi, 16-bit carry, folds)
+    g("reduce64:", "STZ CL", "STZ CH", "LDX #0")
     lr = g.lab("r")
     g(f"{lr}:")
-    # T1:T0 = 2v ; T3:T2 = 4v ; then 32v = 4v << 3 added
     g(f"LDA {T64 + 32},X", "ASL A", "STA T0", "LDA #0", "ROL A", "STA T1")      # 2v
     g("LDA T0", "ASL A", "STA T2", "LDA T1", "ROL A", "STA T3")                 # 4v
     g("CLC", "LDA T0", "ADC T2", "STA T0", "LDA T1", "ADC T3", "STA T1")        # 6v
@@ -306,9 +433,8 @@ def gen_field(g):
     g("TXA", "TAY", "LDA T0", "STA (P3),Y")
     g("LDA CH", "STA CL", "STZ CH")
     g("INX", "CPX #32", f"BNE {lr}")
-    # final carry CL (<= 38): add 38*CL (16 bit) and propagate, then fold once more
-    g("LDA CL", "ASL A", "STA T0", "LDA #0", "ROL A", "STA T1")                 # 2c
-    g("LDA T0", "ASL A", "STA T2", "LDA T1", "ROL A", "STA T3")                 # 4c
+    g("LDA CL", "ASL A", "STA T0", "LDA #0", "ROL A", "STA T1")
+    g("LDA T0", "ASL A", "STA T2", "LDA T1", "ROL A", "STA T3")
     g("CLC", "LDA T0", "ADC T2", "STA T0", "LDA T1", "ADC T3", "STA T1")
     g("ASL T2", "ROL T3", "ASL T2", "ROL T3", "ASL T2", "ROL T3")
     g("CLC", "LDA T0", "ADC T2", "STA T0", "LDA T1", "ADC T3", "STA T1")        # 38c
@@ -319,17 +445,30 @@ def gen_field(g):
     g("JMP fold_add")
 
 
+def _qs_setrow(g):
+    """QP0..QP3 = SQL+a, NSQL+a, SQH+a, NSQH+a for the row multiplicand in A."""
+    g("STA T0")
+    for zp, tab in [("QP0", "SQL"), ("QP1", "NSQL"), ("QP2", "SQH"), ("QP3", "NSQH")]:
+        g("CLC", f"LDA #<{tab}", "ADC T0", f"STA {zp}", f"LDA #>{tab}", "ADC #0", f"STA {zp}+1")
+
+
+def _qs_product(g, b_addr, nb_addr):
+    """A = low byte, T3 = high byte of row_a * b (public data only)."""
+    g(f"LDY {b_addr}", "LDA (QP2),Y", "TAX", "LDA (QP0),Y", f"LDY {nb_addr}", "SEC",
+      "SBC (QP1),Y", "STA T0", "TXA", "SBC (QP3),Y", "STA T3", "LDA T0")
+
+
 def gen_field_high(g):
     """Squaring chains: inversion and (p-5)/8 power (ref10 addition chains)."""
     I0, I1, I2, I3 = fe("I0"), fe("I1"), fe("I2"), fe("I3")
 
     def sq(r, a, n=1):
-        call3(g, "fe_mul", r, a, a)
+        call3(g, "fe_sq", r, a)
         if n > 1:
             g(f"LDA #{n - 1}", "STA NN")
             l = g.lab("sq")
             g(f"{l}:")
-            call3(g, "fe_mul", r, r, r)
+            call3(g, "fe_sq", r, r)
             g("DEC NN", f"BNE {l}")
 
     def mul(r, a, b):
@@ -416,12 +555,13 @@ def gen_group(g):
     g("RTS")
     # ---- PP = 2*Q (Q as p2: X, Y, Z)
     g("p2_dbl:")
-    mul(X_(PP), X_(Q), X_(Q))            # XX
-    mul(Z_(PP), Y_(Q), Y_(Q))            # YY
-    mul(T_(PP), Z_(Q), Z_(Q))
+    sq = lambda r, a: call3(g, "fe_sq", r, a)
+    sq(X_(PP), X_(Q))                    # XX
+    sq(Z_(PP), Y_(Q))                    # YY
+    sq(T_(PP), Z_(Q))
     add(T_(PP), T_(PP), T_(PP))          # B = 2 Z^2
     add(Y_(PP), X_(Q), Y_(Q))            # A = X + Y
-    mul(TA, Y_(PP), Y_(PP))              # AA
+    sq(TA, Y_(PP))                       # AA
     add(Y_(PP), Z_(PP), X_(PP))          # Y3 = YY + XX
     sub(Z_(PP), Z_(PP), X_(PP))          # Z3 = YY - XX
     sub(X_(PP), TA, Y_(PP))              # X3 = AA - Y3
@@ -846,19 +986,22 @@ def gen_ed25519(g):
     S = SCL
     Q = fe("Q")
     # derive: H = SHA512(seed); a = clamp(H[0:32]); prefix = H[32:64]; A = [a]B
-    g("derive:", "JSR sha_init")
-    sha_ptr_len(g, SEED, 32)
-    ptr(g, "PTR", S["H"])
-    g("JSR sha_final")
-    g(f"LDA {S['H']}", "AND #$F8", f"STA {S['H']}",
-      f"LDA {S['H'] + 31}", "AND #$3F", "ORA #$40", f"STA {S['H'] + 31}")
+    g("derive:", "JSR derive_h")
     ptr(g, "P1", S["H"])
     g("JSR recode", "JSR base_mult")
     ptr(g, "P4", S["A_BYTES"])
     g("JSR encode", "RTS")
+    g("derive_h:", "JSR set_ct", "JSR sha_init")
+    sha_ptr_len(g, SEED, 32)
+    ptr(g, "PTR", S["H"])
+    g("JSR sha_final")
+    g(f"LDA {S['H']}", "AND #$F8", f"STA {S['H']}",
+      f"LDA {S['H'] + 31}", "AND #$3F", "ORA #$40", f"STA {S['H'] + 31}", "RTS")
     # sign into (SPTR... ) -> buffer given in PTR2? use fixed: signature to (P4) region via SIGP
-    g("sign:")                                       # signature -> SIGOUT (set by caller in TT)
-    g("JSR derive")
+    # sign: signature -> (TT).  REUSEA != 0 reuses A_BYTES (already checked
+    # byte-for-byte against the expected key) instead of recomputing [a]B.
+    g("sign:", "JSR set_ct", "LDA REUSEA", "BNE _sg_reuse", "JSR derive", "JMP _sg_go",
+      "_sg_reuse: JSR derive_h", "_sg_go:")
     # r = SHA512(prefix || M) mod L
     g("JSR sha_init")
     sha_ptr_len(g, S["H"] + 32, 32)
@@ -905,7 +1048,7 @@ def gen_verify(g):
     add, sub, mul = (lambda r, a, b: call3(g, "fe_add", r, a, b),
                      lambda r, a, b: call3(g, "fe_sub", r, a, b),
                      lambda r, a, b: call3(g, "fe_mul", r, a, b))
-    g("verify:", "LDA #1", "STA STATUS")
+    g("verify:", "JSR set_fast", "LDA #1", "STA STATUS")
     # k = SHA512(R || A || M) mod L, recomputed here from the signature under
     # test and the frozen message (never reused from the signing pass)
     g("JSR sha_init")
@@ -927,13 +1070,14 @@ def gen_verify(g):
     g("LDY #31")
     l = g.lab("dy")
     g(f"{l}: LDA {S['A_BYTES']},Y", f"STA {DY},Y", "DEY", f"BPL {l}", f"LDA {DY + 31}", "AND #$7F", f"STA {DY + 31}")
-    mul(DU, DY, DY)
+    sq = lambda r, a: call3(g, "fe_sq", r, a)
+    sq(DU, DY)
     mul(DV, DU, "C_D")
     sub(DU, DU, "C_ONE")            # u = y^2 - 1
     add(DV, DV, "C_ONE")            # v = d y^2 + 1
-    mul(DV3, DV, DV)
+    sq(DV3, DV)
     mul(DV3, DV3, DV)               # v^3
-    mul(DX, DV3, DV3)
+    sq(DX, DV3)
     mul(DX, DX, DV)
     mul(DX, DX, DU)                 # u v^7
     ptr(g, "P1", DX)
@@ -941,7 +1085,7 @@ def gen_verify(g):
     g("JSR fe_copy", "JSR fe_pow2523")
     mul(DX, fe("I0"), DV3)
     mul(DX, DX, DU)                 # x = u v^3 (u v^7)^((p-5)/8)
-    mul(DVXX, DX, DX)
+    sq(DVXX, DX)
     mul(DVXX, DVXX, DV)             # v x^2
     sub(DCHK, DVXX, DU)
     ptr(g, "P3", DCHK)
@@ -1012,8 +1156,8 @@ def gen_verify(g):
     g("LDX #31")
     lr = g.lab("vr")
     g(f"{lr}: LDA {S['TMP64']},X", f"CMP {S['SIG1']},X", "BNE vfail", "DEX", f"BPL {lr}")
-    g("STZ STATUS", "RTS")
-    g("vfail:", "LDA #1", "STA STATUS", "RTS")
+    g("STZ STATUS", "JMP set_ct")
+    g("vfail:", "LDA #1", "STA STATUS", "JMP set_ct")
     # gadd with CPTR = VTAB (1 * -A cached) while Q holds the running multiple
     g("gadd_neg_a:", "LDA CPTR", "PHA", "LDA CPTR+1", "PHA",
       f"LDA #<{VTAB}", "STA CPTR", f"LDA #>{VTAB}", "STA CPTR+1", "JSR gadd",
@@ -1027,7 +1171,7 @@ def gen_verify(g):
 def gen_main(g, double_sign=True, verify=True):
     """Spec Section 10.3 envelope -> Section 10.4 record, with bank locks."""
     S = SCL
-    g("sign_main:", "LDA #0", "STA FAILC")
+    g("sign_main:", "JSR set_ct", "LDA #0", "STA FAILC", "STZ REUSEA")
     # ---- envelope: magic, profile 0, reserved 0, length <= 4096, CRC
     g("LDX #7")
     l = g.lab("mg")
@@ -1060,7 +1204,8 @@ def gen_main(g, double_sign=True, verify=True):
     l = g.lab("pk")
     g(f"{l}: LDA {S['A_BYTES']},X", f"CMP {S['EXPECT']},X", f"BEQ {l}_o", "JMP fail", f"{l}_o: DEX", f"BPL {l}")
     if double_sign:
-        g(f"LDA #<{S['SIG2']}", "STA TT", f"LDA #>{S['SIG2']}", "STA TT+1", "JSR sign")
+        g("LDA #1", "STA REUSEA")
+        g(f"LDA #<{S['SIG2']}", "STA TT", f"LDA #>{S['SIG2']}", "STA TT+1", "JSR sign", "STZ REUSEA")
         g("LDX #63")
         l = g.lab("ds")
         g(f"{l}: LDA {S['SIG1']},X", f"CMP {S['SIG2']},X", f"BEQ {l}_o", "JMP fail", f"{l}_o: DEX", f"BPL {l}")
@@ -1120,6 +1265,18 @@ def gen_data(g):
             g("        .byte " + ", ".join(f"${x:02X}" for x in b[i:i + 16]))
     g(".align 256", "BTAB:")
     bytes_(base_tables())
+    # quarter-square tables (public-data multiply): SQ[x] = x^2/4, NSQ[x] = (255-x)^2/4
+    for name, fn in [("SQL", lambda x: (x * x // 4) & 0xFF), ("SQH", lambda x: (x * x // 4) >> 8),
+                     ("NSQL", lambda x: ((255 - x) ** 2 // 4) & 0xFF),
+                     ("NSQH", lambda x: ((255 - x) ** 2 // 4) >> 8)]:
+        g(".align 256", f"{name}:")
+        bytes_(bytes(fn(x) for x in range(512)))
+    g("HIMASKT:")
+    bytes_(bytes(HIMASK))
+    g("SQENT_LO:")
+    g("        .byte " + ", ".join(f"<sqe{j + 2}" for j in range(31)))
+    g("SQENT_HI:")
+    g("        .byte " + ", ".join(f">sqe{j + 2}" for j in range(31)))
     g("SHAK:")
     for k in sha_k():
         bytes_(k.to_bytes(8, "little"))
@@ -1151,10 +1308,12 @@ def source(double_sign=True, verify=True):
     g(".org $8000")
     g("reset:", "SEI", "CLD", "LDX #$FF", "TXS", "LDA #0", "STA $7F02", "JSR sign_main", "STP")
     # test stubs: harness sets PC to one of these
-    for name in ["fe_mul", "fe_add", "fe_sub", "fe_canon", "fe_invert", "fe_pow2523", "sc_reduce",
-                 "sc_muladd", "recode", "base_mult", "encode", "derive", "sign", "verify",
-                 "sha_init", "sha_update", "sha_final", "crc32", "sign_main", "prod64"]:
-        g(f"t_{name}: JSR {name}", "STP")
+    for name in ["fe_mul", "fe_sq", "fe_add", "fe_sub", "fe_canon", "fe_invert", "fe_pow2523",
+                 "sc_reduce", "sc_muladd", "recode", "base_mult", "encode", "derive", "sign",
+                 "sha_init", "sha_update", "sha_final", "crc32", "sign_main", "prod64",
+                 "fe_mul_ct", "fe_sq_ct", "fe_mul_qs", "fe_sq_qs"]:
+        g(f"t_{name}: JSR set_ct", f"JSR {name}", "STP")
+    g("t_verify: JSR verify", "STP")
     g("t_sha:", "JSR sha_init", "JSR sha_update", "JSR sha_final", "STP")
     gen_main(g, double_sign, verify)
     gen_ed25519(g)

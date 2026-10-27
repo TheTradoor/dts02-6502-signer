@@ -36,6 +36,19 @@ class TestPrimitives(unittest.TestCase):
             self.fw.call("fe_canon")
             self.assertEqual(int.from_bytes(self.fw.get(F.fe("TC"), 32), "little"), a % P)
 
+    def test_all_multiply_variants(self):
+        rnd = random.Random(7)
+        P = F.P
+        vals = [0, 1, P - 1, P, 2**255, 2**256 - 1, 2**256 - 38, 255, 256] + \
+               [rnd.getrandbits(256) for _ in range(16)]
+        for op, square in [("fe_mul_ct", False), ("fe_sq_ct", True), ("fe_mul_qs", False),
+                           ("fe_sq_qs", True)]:
+            for i, a in enumerate(vals):
+                b = a if square else vals[(5 * i + 2) % len(vals)]
+                with self.subTest(op=op, i=i):
+                    r, _ = self.fw.fe_op(op, a, None if square else b)
+                    self.assertEqual(r % P, a * b % P)
+
     def test_sha512_all_padding_boundaries(self):
         rnd = random.Random(2)
         for n in [0, 1, 111, 112, 113, 127, 128, 129, 239, 240, 255, 256, 1232, 4096]:
@@ -106,6 +119,41 @@ class TestSignVerify(unittest.TestCase):
         self.assertEqual(ver(E.sign(SEED, b"other"), b"other"), 0)
 
 
+class TestConstantTime(unittest.TestCase):
+    """Secret-dependent code must have identical control flow and memory
+    access patterns: the emulator hashes every bus address it touches."""
+
+    def trace(self, routine, seed, msg=b"same public message"):
+        fw = Fw()
+        fw.put(F.SEED, seed)
+        fw.put(F.MSG, msg)
+        fw.put(F.META, len(msg).to_bytes(2, "little"))
+        fw.setp("TT", F.SCL["SIG1"])
+        cycles = fw.call(routine)
+        return fw.m.m.trace, cycles
+
+    def test_derive_and_sign_traces_independent_of_seed(self):
+        for routine in ("derive", "sign"):
+            with self.subTest(routine):
+                a = self.trace(routine, hashlib.sha256(b"seed one").digest())
+                b = self.trace(routine, hashlib.sha256(b"seed two").digest())
+                self.assertEqual(a, b)
+
+    def test_verify_restores_constant_time_multiply(self):
+        fw = Fw()
+        fw.put(F.SEED, SEED)
+        fw.put(F.MSG, b"m")
+        fw.put(F.META, (1).to_bytes(2, "little"))
+        fw.setp("TT", F.SCL["SIG1"])
+        fw.call("sign")
+        good = fw.get(F.SCL["SIG1"], 64)
+        for sig in (good, bytes(64)):                      # pass and fail paths
+            fw.put(F.SCL["SIG1"], sig)
+            fw.call("verify")
+            vec = int.from_bytes(fw.m.read(F.ZP["MULV"], 2), "little")
+            self.assertEqual(vec, fw.syms["fe_mul_ct"])
+
+
 class TestSolanaFlow(unittest.TestCase):
     """Full spec flow (Sections 10.3-10.4) on Solana legacy messages."""
 
@@ -135,7 +183,7 @@ class TestSolanaFlow(unittest.TestCase):
         msg = SOL.transfer_message(A, E.public_key(b"\x03" * 32), 1_234_567_890,
                                    hashlib.sha256(b"blockhash").digest())
         cycles = self.check(msg)
-        self.assertLess(cycles, 1.3e9)
+        self.assertLess(cycles, 0.75e9)
 
     def test_durable_nonce_transfer(self):
         msg = SOL.transfer_message(A, E.public_key(b"\x03" * 32), 5, hashlib.sha256(b"nonce").digest(),
