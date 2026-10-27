@@ -53,17 +53,14 @@ def strip_key(h):
     return (b, "pad", r)                 # panel pad: r is the net name
 
 
-ACTIVE_GRID = dict(GRID)
-
-
-def hole_xy(h):
-    GRID = ACTIVE_GRID
+def hole_xy(h, grid=None):
+    grid = GRID if grid is None else grid
     b, c, r = h
     if b == "LED":
         digit = _LED_X.get(r)
         x = 10 + 15.24 * digit if digit is not None else 125.0
         return (x, 2 * PITCH_Y + 20)
-    gx, gy = GRID[b]
+    gx, gy = grid[b]
     if c == "pad":
         return (gx * PITCH_X + 27, gy * PITCH_Y + 80)
     return (gx * PITCH_X + X_MM[c], gy * PITCH_Y + 5 + (r - 1) * 2.54)
@@ -78,8 +75,8 @@ for _b in range(4):
             _LED_X[f"D{_d}_{_s}"] = _d
 
 
-def wire_mm(h1, h2):
-    (x1, y1), (x2, y2) = hole_xy(h1), hole_xy(h2)
+def wire_mm(h1, h2, grid=None):
+    (x1, y1), (x2, y2) = hole_xy(h1, grid), hole_xy(h2, grid)
     return 1.15 * math.hypot(x2 - x1, y2 - y1) + 10.0     # routing slack + stripped ends
 
 
@@ -93,7 +90,8 @@ def fmt(h):
 
 
 class Layout:
-    def __init__(self):
+    def __init__(self, grid=None):
+        self.grid = dict(grid or GRID)     # retain this layout's board geometry
         self.used = {}                     # hole -> owner
         self.strip_net = {}                # (board,row,side) -> net ("" = pin, no net)
         self.rail_count = defaultdict(int)
@@ -138,8 +136,9 @@ class Layout:
         cands = rows if rows is not None else sorted(range(1, 64), key=lambda r: abs(r - near_row))
         if near_hole is not None and rows is None:
             opts = [(r, sd) for r in range(1, 64) for sd in "LR" if (b, r) not in RESERVED]
-            opts.sort(key=lambda o: math.dist(hole_xy(near_hole),
-                                              hole_xy((b, "c" if o[1] == "L" else "h", o[0]))))
+            opts.sort(key=lambda o: math.dist(hole_xy(near_hole, self.grid),
+                                              hole_xy((b, "c" if o[1] == "L" else "h", o[0]),
+                                                      self.grid)))
             for r, sd in opts:
                 key = (b, r, sd)
                 cols = COLS_L if sd == "L" else COLS_R
@@ -191,7 +190,7 @@ class Layout:
             hs.append((self.attach(net, b, ref, **kw), net))
         self.items.append(dict(kind=kind, ref=ref, value=value, leads=hs))
         if len(hs) == 2 and hs[0][0][0] == hs[1][0][0] and hs[0][0][0] not in PANELS:
-            span = math.dist(hole_xy(hs[0][0]), hole_xy(hs[1][0]))
+            span = math.dist(hole_xy(hs[0][0], self.grid), hole_xy(hs[1][0], self.grid))
             if span > MAX_LEAD_SPAN_MM:
                 self.errors.append(f"{ref}: leads {fmt(hs[0][0])}-{fmt(hs[1][0])} span {span:.0f} mm")
         if sim_part:
@@ -222,11 +221,10 @@ def generate(grid=None, moves=None, cd_pullups_at_cpu=False, mutations=(),
              pd_rows=range(36, 44)):
     """grid: board arrangement override; moves: {ic: new pin-1 row} placement
     overrides; cd_pullups_at_cpu applies the F9 suggestion; mutations selects a
-    schematic variant (e.g. ["rev03"])."""
-    ACTIVE_GRID.clear()
-    ACTIVE_GRID.update(grid or GRID)
-    L = Layout()
-    L.variant = dict(grid=grid, moves=moves, cd_pullups_at_cpu=cd_pullups_at_cpu,
+    schematic variant (e.g. ["rev03"]). The layout retains a copy of its grid."""
+    L = Layout(grid=grid)
+    L.variant = dict(grid=dict(grid) if grid is not None else None,
+                     moves=moves, cd_pullups_at_cpu=cd_pullups_at_cpu,
                      mutations=tuple(mutations))
     terms, kinds, esim = schematic(mutations)
     L.terminals = terms
@@ -390,8 +388,8 @@ def generate(grid=None, moves=None, cd_pullups_at_cpu=False, mutations=(),
             rest = [n for n in nodes if n != start]
             chain, total = [start], 0.0
             while rest:
-                nxt = min(rest, key=lambda k: _dist(chain[-1], k))
-                total += _dist(chain[-1], nxt)
+                nxt = min(rest, key=lambda k: _dist(chain[-1], k, L.grid))
+                total += _dist(chain[-1], nxt, L.grid)
                 rest.remove(nxt)
                 chain.append(nxt)
             if best is None or total < best[0]:
@@ -414,10 +412,10 @@ def generate(grid=None, moves=None, cd_pullups_at_cpu=False, mutations=(),
     return L
 
 
-def _dist(a, b):
+def _dist(a, b, grid):
     ha = (a[0], "pad", a[2]) if a[1] == "pad" else ((a[0], "a" if a[2] == "L" else "j", a[1]))
     hb = (b[0], "pad", b[2]) if b[1] == "pad" else ((b[0], "a" if b[2] == "L" else "j", b[1]))
-    return wire_mm(ha, hb)
+    return wire_mm(ha, hb, grid)
 
 
 def _hole_for(L, key, net):
@@ -524,7 +522,7 @@ def physical_netlist(L, faults=()):
     strips = defaultdict(set)
     for h1, h2, net in con["wires"]:
         n = node(h1)
-        cap[n] += wire_mm(h1, h2) * WIRE_PF_PER_MM
+        cap[n] += wire_mm(h1, h2, L.grid) * WIRE_PF_PER_MM
         strips[n] |= {strip_key(h1), strip_key(h2)}
     for n, s in strips.items():
         cap[n] += STRIP_PF * len(s)
@@ -558,13 +556,13 @@ def wire_report(L):
     by_net = defaultdict(float)
     boards = defaultdict(set)
     for h1, h2, net in L.wires:
-        by_net[net] += wire_mm(h1, h2)
+        by_net[net] += wire_mm(h1, h2, L.grid)
         boards[net] |= {h1[0], h2[0]}
     phi2_seg = None
     u7, u1 = L.pin_hole[("U7", 2)], L.pin_hole[("U1", 37)]
     for h1, h2, net in L.wires:
         if net == "PHI2" and {strip_key(h1), strip_key(h2)} == {strip_key(u7), strip_key(u1)}:
-            phi2_seg = wire_mm(h1, h2)
+            phi2_seg = wire_mm(h1, h2, L.grid)
     return by_net, boards, phi2_seg
 
 
@@ -645,7 +643,7 @@ def write_docs(L, outdir):
         hs = " ".join(f"{fmt(h)}({n})" for h, n in it["leads"])
         rows.append(("part", it["ref"], it["value"], "", hs, "", ""))
     for h1, h2, net in L.wires:
-        rows.append(("wire", "", "", net, fmt(h1), fmt(h2), f"{wire_mm(h1, h2):.0f}"))
+        rows.append(("wire", "", "", net, fmt(h1), fmt(h2), f"{wire_mm(h1, h2, L.grid):.0f}"))
     with open(os.path.join(outdir, "wiring.csv"), "w", newline="") as f:
         w = csv.writer(f)
         w.writerow(["kind", "ref", "value", "net", "from", "to", "length_mm"])
@@ -711,7 +709,7 @@ def write_docs(L, outdir):
             for h1, h2, net in ws:
                 if h1[0] != b:
                     h1, h2 = h2, h1
-                a(f"| {net} | {fmt(h1)} | {fmt(h2)} | {wire_mm(h1, h2):.0f} |")
+                a(f"| {net} | {fmt(h1)} | {fmt(h2)} | {wire_mm(h1, h2, L.grid):.0f} |")
             a("")
     with open(os.path.join(outdir, "WIRING.md"), "w") as f:
         f.write("\n".join(out) + "\n")
