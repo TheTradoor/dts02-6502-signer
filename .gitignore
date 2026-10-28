@@ -4,3 +4,4 @@ __pycache__/
 *.bin
 _build/
 third_party/
+roms/

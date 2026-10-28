@@ -149,6 +149,28 @@ class TestDisplay(unittest.TestCase):
         self.assertTrue(all(c.powered is False for c in b.sim.parts.values() if c.kind == "MAX7219"))
 
 
+class TestKeypadMenu(unittest.TestCase):
+    def test_hardware_boot_selects_scenario_on_keypad(self):
+        """No simulation mailbox (as on a real board): menu, key 8, ENTER -> font page."""
+        b = Bench(seed=12)
+        for i in range(9):
+            b.ram.mem[0x3F80 + i] = 0
+        b.run_to("mn_loop", max_cycles=200_000)
+        b.run_cycles(12000)
+        self.assertEqual(b.display_text(), "--0" + " " * 13)
+        b.h.press_keypad("8")
+        b.run_cycles(2500)
+        b.h.press_keypad()
+        b.run_cycles(14000)
+        self.assertEqual(b.display_text(), "--8" + " " * 13)
+        b.h.press_key("ENTER")
+        b.run_cycles(1500)
+        b.h.press_key("ENTER", False)
+        b.run_to("done", max_cycles=100_000)
+        self.assertEqual(b.display_text(), "0123456789AbCdEF")
+        self.assertEqual(b.violations(), [])
+
+
 class TestKeypad(unittest.TestCase):
     def test_hex_entry_and_multi_key_rejection(self):
         b = Bench(scenario="keypad", seed=9)

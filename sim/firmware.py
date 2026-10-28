@@ -2,7 +2,8 @@
 
 boot_rom() implements the spec's Section 10.1 boot/reset state machine and,
 on a fresh start, runs the test scenario whose number the harness wrote to
-the RAM mailbox $3F80.  This is test firmware for the
+the RAM mailbox $3F80 (simulation), or that the operator selects on the
+keypad: digit 0-9, then ENTER (real hardware).  This is test firmware for the
 hardware model, not signing firmware.
 """
 
@@ -65,7 +66,9 @@ STATUS = $7F01
 SWITCH = $7F00
 SETMSG = $7F03
 SETRES = $7F04
-MAILBOX = $3F80         ; test harness writes the scenario number here
+MAILBOX = $3F80         ; harness: "DTS02SIM" at $3F80-$3F87, scenario at $3F88
+SEL    = $2C            ; keypad menu selection
+ENTCNT = $2D            ; ENTER debounce count
 GSH    = $20            ; GPIO shadow: DISPLAY_ENABLE + idle keypad rows
 MXA    = $21            ; MAX7219 word being sent (address, data)
 MXD    = $22
@@ -210,7 +213,65 @@ fz1:    STA ($0C),Y
         CPX #ZERO_END
         BNE fz1
         JSR display_init
-        LDA MAILBOX
+        LDX #7                  ; simulation harness mailbox present?
+mbx:    LDA MAILBOX,X
+        CMP simmagic,X
+        BNE menu
+        DEX
+        BPL mbx
+        LDA MAILBOX+8
+        JMP dispatch
+
+; ---------------- keypad menu: digit 0-9 selects, ENTER runs ----------------
+menu:   STZ SEL
+        STZ ENTCNT
+        LDA #$FF
+        STA KLAST
+        STZ KSTAB
+        JSR show_menu
+mn_loop: JSR kscan
+        CMP KLAST
+        BEQ mn_same
+        STA KLAST
+        STZ KSTAB
+        JMP mn_ent
+mn_same: INC KSTAB
+        LDA KSTAB
+        CMP #3                  ; accept a key after 3 identical scans, once
+        BNE mn_ent
+        LDA KLAST
+        CMP #10
+        BCS mn_ent              ; A-F, none or several keys: ignored
+        STA SEL
+        JSR show_menu
+mn_ent: LDA STATUS              ; ENTER is $7F01 bit 0
+        AND #$01
+        BEQ mn_rel
+        INC ENTCNT
+        LDA ENTCNT
+        CMP #3
+        BNE mn_loop
+        LDA SEL
+        JMP dispatch
+mn_rel: STZ ENTCNT
+        JMP mn_loop
+
+show_menu:                      ; "--n" with n the selected scenario
+        LDA #$40
+        STA $10
+        STA $11
+        LDY SEL
+        LDA font,Y
+        STA $12
+        LDX #3
+        LDA #0
+smz:    STA $10,X
+        INX
+        CPX #16
+        BNE smz
+        JMP show_page
+
+dispatch:
         STA $07
         CMP #1
         BNE d2
@@ -612,6 +673,7 @@ kp_idle: JMP kp_loop
 rowclr: .byte $FB, $F7, $EF, $7F        ; clear D2, D3, D4, D7
 keyval: .byte 1, 2, 3, $A, 4, 5, 6, $B, 7, 8, 9, $C, $E, 0, $F, $D
 magic:  .byte 'D', 'T', 'S', '0', '2', 'O', 'U', 'T'
+simmagic: .byte 'D', 'T', 'S', '0', '2', 'S', 'I', 'M'
 font:
 {font}
         .byte $00               ; entry 16: blank

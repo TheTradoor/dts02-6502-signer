@@ -104,7 +104,7 @@ class TestBootRomIdealBus(unittest.TestCase):
         req = next(gen)
         for _ in range(400_000):
             rw, addr, data, sync = req
-            if sync and addr == syms["done"]:
+            if sync and addr == syms["mn_loop"]:      # mailbox wiped by the full zero: keypad menu
                 break
             if rw == "R":
                 v = {0x7F00: 0xFF, 0x7F01: 0x00}.get(addr & 0xFF07 if addr >= 0x7F00 and addr < 0x8000 else addr,
@@ -115,6 +115,6 @@ class TestBootRomIdealBus(unittest.TestCase):
                     mem[addr] = data
                 req = gen.send(None)
         else:
-            self.fail("boot ROM did not reach done")
+            self.fail("boot ROM did not reach the keypad menu")
         dirty = [a for a in range(0x0200, 0x4000) if mem[a]]
         self.assertEqual(dirty, [])

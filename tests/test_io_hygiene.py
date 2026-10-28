@@ -40,7 +40,7 @@ class TestIoHygiene(unittest.TestCase):
             with self.subTest(name):
                 m = Machine(rom=img)
                 m.m.s = 0xFD
-                m.load(0x3F80, bytes([num]))
+                m.load(0x3F80, b"DTS02SIM" + bytes([num]))
                 m.reset()
                 m.run(stop=syms["done"], max_cycles=20_000_000)
                 allowed = CANONICAL_WRITES | ({0x7F05} if name == "res_fault" else set())

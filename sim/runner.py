@@ -30,8 +30,11 @@ class Bench:
             self.set_scenario(scenario)
 
     def set_scenario(self, name):
-        """Test firmware reads its scenario number from the RAM mailbox $3F80."""
-        self.ram.mem[0x3F80] = SCENARIOS[name]
+        """Write the simulation mailbox: "DTS02SIM" at $3F80, scenario at $3F88.
+        Without it the test firmware shows its keypad menu, as on hardware."""
+        for i, c in enumerate(b"DTS02SIM"):
+            self.ram.mem[0x3F80 + i] = c
+        self.ram.mem[0x3F88] = SCENARIOS[name]
 
     def set_columns(self, nibble):
         """Press row-1 keys so that, with every row driven low, port $7F00 reads
@@ -62,6 +65,7 @@ class Bench:
         from .firmware import FONT
         inv = {m: "0123456789AbCdEF"[i] for i, m in enumerate(FONT)}
         inv[0] = " "
+        inv[0x40] = "-"
         out = []
         for m in self.h.display():
             out.append("?" if m is None else inv.get(m, "#"))

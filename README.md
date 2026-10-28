@@ -50,8 +50,9 @@ python3 -m sim handoff                      # Section 11.2 bus-handoff measureme
 python3 -m sim race                         # worst-case read-window corner: rev 0.3 vs rev 0.4
 python3 -m sim wiring                       # regenerate wiring/WIRING.md + wiring.csv (hole-level build list) and check it
 python3 -m sim sign --lamports 5000         # sign a Solana transfer on the emulated 65C02, check vs RFC 8032 + OpenSSL
+python3 -m sim roms                         # write the prototype ROM images + SHA256SUMS to roms/
 ./tools/fetch_klaus.sh                      # optional: fetch Klaus Dormann's CPU test ROMs for tests/test_emu.py
-python3 -m unittest discover -s tests -v    # full test suite: 97 tests, about 18 minutes
+python3 -m unittest discover -s tests -v    # full test suite: 98 tests, about 20 minutes
 ```
 
 Scenarios for `run`: `idle`, `ram`, `msg_fault`, `res_fault`, `msg_frozen`, `record_ok`, `record_bad`, `mirrors`, `font` (`keypad` runs an endless key-echo loop and is driven from `tests/test_system.py`).
@@ -63,6 +64,27 @@ Options shared by `run`, `diag`, `handoff` and `race`:
 - `--vcd out.vcd`: write a waveform you can open in GTKWave
 
 Throughput is about 1,500 simulated CPU cycles per second.
+
+## Prototype ROMs
+
+`python3 -m sim roms` writes the images to burn into the AT27C256R, with `roms/SHA256SUMS`. Read back all 32,768 bytes after programming and compare.
+
+1. `DTS02_bus_diagnostic_32KiB.bin`: the spec's Section 11.3 bus diagnostic, for the first bring-up stage. It copies keypad port $7F00 to $0200 forever, with the display off.
+2. `DTS02_test_rom_32KiB.bin`: the Section 10.1 boot state machine plus test scenarios. After a fresh start it shows `--0`. Press a digit to choose a scenario, then ENTER:
+
+| Key | Scenario | What you should see |
+|---|---|---|
+| 0 | idle | Blank panel; FAULT/locks off |
+| 1 | RAM test | Blank; RAM probes written (check with a logic analyzer) |
+| 2 | message lock, then protected writes | Font page, then the panel goes dark (display power cut); red FAULT and yellow MESSAGE_LOCK LEDs on. CPU RESET stays in the fault hold |
+| 3 | result lock, then protected write | FAULT and RESULT_LOCK LEDs on |
+| 4 | freeze a message | MESSAGE_LOCK on; press CPU RESET and the panel shows `C0` |
+| 5 / 6 | write a result record (valid / bad CRC), lock | RESULT_LOCK on; CPU RESET shows `C2` / `C1` |
+| 7 | I/O mirrors | MESSAGE_LOCK on (set through mirror $7F0B) |
+| 8 | font page | `0123456789AbCdEF` |
+| 9 | keypad echo | Typed hex keys scroll in from the right (`*` = E, `#` = F) |
+
+A cold clear (power cycle) returns to the menu. The signing ROM is not burnable yet: it has no keypad entry or review UI.
 
 ## Layout
 

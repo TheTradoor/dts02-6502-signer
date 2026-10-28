@@ -5,6 +5,7 @@
   diag                  run the spec's Section 11.3 diagnostic ROM
   handoff               Section 11.2 bus-handoff measurements
   race                  worst-case read-window corner, rev 0.3 vs rev 0.4
+  roms                  write the ROM images to burn, with SHA-256 (roms/ by default)
   sign                  sign a Solana transfer with the 6502 firmware (fast emulator)
                         and check it against Python RFC 8032 and OpenSSL
   wiring                generate the hole-level breadboard layout + jumper list
@@ -184,11 +185,37 @@ def cmd_sign(a):
     return 0 if ok else 1
 
 
+def cmd_roms(a):
+    import hashlib
+    import os
+    from .firmware import boot_rom
+    os.makedirs(a.out, exist_ok=True)
+    images = [
+        ("DTS02_bus_diagnostic_32KiB.bin", specdoc.diagnostic_rom(),
+         "spec Section 11.3 bus diagnostic: burn first"),
+        ("DTS02_test_rom_32KiB.bin", boot_rom(zero_end_page=0x40)[0],
+         "Section 10.1 boot + test scenarios; keypad 0-9 then ENTER selects"),
+    ]
+    lines = []
+    for name, img, what in images:
+        with open(os.path.join(a.out, name), "wb") as f:
+            f.write(img)
+        h = hashlib.sha256(img).hexdigest()
+        lines.append(f"{h}  {name}")
+        print(f"{name}  {len(img)} bytes  sha256 {h}\n    {what}")
+    with open(os.path.join(a.out, "SHA256SUMS"), "w") as f:
+        f.write("\n".join(lines) + "\n")
+    print(f"wrote {a.out}/ (verify after programming: read back all 32,768 bytes and compare)")
+    return 0
+
+
 def main(argv=None):
     p = argparse.ArgumentParser(prog="python3 -m sim", description=__doc__,
                                 formatter_class=argparse.RawDescriptionHelpFormatter)
     sub = p.add_subparsers(dest="cmd")
     sub.add_parser("check")
+    ro = sub.add_parser("roms")
+    ro.add_argument("--out", default="roms")
     sg = sub.add_parser("sign")
     sg.add_argument("--seed-text", default="DTS-02 public test fixture seed - never fund")
     sg.add_argument("--to", help="recipient (base58)")
@@ -213,7 +240,8 @@ def main(argv=None):
         s.add_argument("--vcd", help="write a GTKWave VCD file")
     a = p.parse_args(argv)
     fn = {"check": cmd_check, "run": cmd_run, "diag": cmd_diag, "handoff": cmd_handoff,
-          "race": cmd_race, "wiring": cmd_wiring, "sign": cmd_sign}.get(a.cmd or "check")
+          "race": cmd_race, "wiring": cmd_wiring, "sign": cmd_sign,
+          "roms": cmd_roms}.get(a.cmd or "check")
     return fn(a)
 
 
