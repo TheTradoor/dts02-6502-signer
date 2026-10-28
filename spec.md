@@ -2,14 +2,21 @@
 
 Breadboard specification, component list, and wiring plan
 
-Revision 0.4 · 27 October 2026
-Status: unbuilt engineering proposal with pin-level breadboard wiring. Revision 0.4 applies the findings of the revision 0.3 simulation (FINDINGS.md): the read-window trailing-edge race, the PHI2 stub to the fault latch, the oscillator spread, and several text corrections. A generated hole-level wiring list (wiring/WIRING.md) accompanies this revision. No board has been assembled and no timing has been measured.
+Revision 0.5 · 28 October 2026
+Status: unbuilt engineering proposal with pin-level breadboard wiring. Revision 0.5 replaces the discrete shift-register display and DIP-switch input with two MAX7219 LED drivers and a 4×4 membrane keypad (Section 8). Revision 0.4 applied the findings of the revision 0.3 simulation (FINDINGS.md). A generated hole-level wiring list (wiring/WIRING.md) accompanies this revision. No board has been assembled and no timing has been measured.
 
-This is a self-contained specification for a small computer using a modern 6502-family CPU, ordinary SRAM, fixed program ROM, manual input, and raw LED output. Its intended job is plain Ed25519 signing of Solana message bytes, as a distinct third signing device in a 2-of-3 Squads setup.
+This is a self-contained specification for a small computer using a modern 6502-family CPU, ordinary SRAM, fixed program ROM, keypad input, and seven-segment LED output. Its intended job is plain Ed25519 signing of Solana message bytes, as a distinct third signing device in a 2-of-3 Squads setup.
 
-The design below supplies a ten-breadboard placement map, a component list, named nets, DIP pin tables, clock/reset circuits, a bus-handoff timing model, and staged bring-up instructions. The front panel and power fixture use passive perfboard. No complete 6502 Ed25519 firmware is supplied. The included diagnostic ROM generator exercises the bus only.
+The design below supplies a seven-breadboard placement map, a component list, named nets, DIP pin tables, clock/reset circuits, a bus-handoff timing model, and staged bring-up instructions. The front panel and power fixture use passive perfboard. No complete 6502 Ed25519 firmware is supplied. The included diagnostic ROM generator exercises the bus only.
 
 Build this revision with public test keys. It implements a computer, manual I/O, and experimental memory locks. The independent wipe sequencer, CPU power-domain isolation, restricted post-wipe output controller, complete signing firmware, and Solana/Squads authorization parser remain engineering work. They are explicitly listed in Section 12. The solderless prototype is not a finished custody device.
+
+## Changes from revision 0.4
+
+- **Display: two MAX7219 drivers instead of sixteen 74HC595s.** U21 and U22 are daisy-chained MAX7219 (or pin-compatible AS1107/HT7219) 8-digit multiplexed drivers on a 3-wire serial interface from the existing GPIO latch. They replace U20, U23–U36, 128 segment resistors and 20 series resistors; U19 becomes a 3-line display interface buffer. Brightness is set in firmware.
+- **Hardware blanking kept.** The MAX7219 has no output enable, so DISPLAY_ON (CPU_RESET_N & DISPLAY_ENABLE & FAULT_N) now switches the display supply through a jellybean PNP/NPN pair; an unpowered MAX7219 is blank and powers up in shutdown.
+- **Input: 4×4 membrane keypad instead of the DIP switch.** Rows are driven from four freed GPIO bits through Schottky diodes and columns are read through U14 with its existing pull-ups. A byte is two key presses instead of eight switch settings plus ENTER.
+- **Fewer parts.** 30 ICs (28 DIP) instead of 45, seven breadboards instead of ten.
 
 ## Changes from revision 0.3
 
@@ -61,9 +68,9 @@ flowchart TD
     RLATCH --> CPU
     PBUS <--> RAM["U2: SRAM"]
     ROM["U3: OTP ROM"] --> PBUS
-    INPUT["Manual byte and buttons"] --> PBUS
+    INPUT["4x4 keypad and buttons"] --> PBUS
     PBUS --> GPIO["U16: GPIO latch"]
-    GPIO --> PANEL["Four banks of raw LED digits"]
+    GPIO --> PANEL["Two MAX7219 drivers, sixteen LED digits"]
     LOCK["Bank locks and fault latch"] --> RAM
     LOCK --> PANEL
 ```
@@ -96,31 +103,31 @@ These are specific candidate parts/packages, not a claim that every distributor 
 | U14, U15 | 2 | TI SN74HCT541N | PDIP-20 | Byte/key input buffers; enables = port select AND read window |
 | U16 | 1 | TI SN74HCT273N | PDIP-20 | Eight-bit GPIO/display-control latch |
 | U18 | 1 | TI CD74HC10E | PDIP-14 | Three-input NAND: default/fault display blanking and the read window |
-| U19, U20 | 2 | TI SN74HCT244N | PDIP-20 | Display fanout |
-| U21–U36 | 16 | TI SN74HC595N | PDIP-16 | One static segment register per display digit |
+| U19 | 1 | TI SN74HCT244N | PDIP-20 | Display interface buffer, enabled only while the display is powered |
+| U21, U22 | 2 | Analog Devices (Maxim) MAX7219CNG; ams-OSRAM AS1107; HTCSEMI HT7219 | PDIP-24, 0.6 in | Daisy-chained 8-digit LED drivers |
 | U39 | 1 | TI CD74HCT157E | PDIP-16 | Select message/result bank lock |
 | U42 | 1 | Microchip MCP130-460DI/TO | TO-92, D bondout | Power supervisor; 4.35–4.60 V trip range |
 | U43 | 1 | ST L7805ACV | TO-220 | 5 V linear regulator for battery fixture |
 | U44 | 1 | TI SN74HCT573N | PDIP-20 | RLATCH: peripheral→CPU read latch, transparent during EARLY |
 
-Installed total: 45 ICs, including the supervisor and regulator; 43 are DIP packages. The lock daughterboard accounts for five of those DIP ICs and the bus-interface board BB10 for three (U4, U44, U45). Sixteen LED packages are additional.
+Installed total: 30 ICs, including the supervisor and regulator; 28 are DIP packages. Reference designators U20 and U23–U36 are unused in this revision. The lock daughterboard accounts for five of those DIP ICs and the bus-interface board BB10 for three (U4, U44, U45). Sixteen LED packages, two transistors and the keypad are additional.
 
 ### 2.2 Display, controls, passives, and construction
 
-Quantities below cover the populated ten-board design. Buy modest spares. The LED segment resistors are individual resistors; resistor packs are acceptable only if their internal topology is correctly matched.
+Quantities below cover the populated seven-board design. Buy modest spares.
 
 | Qty | Item / value | Allocation |
 |---:|---|---|
 | 16 | Kingbright **SC56-11EWA**, raw common-cathode seven-segment digit | D0–D15, left to right |
-| 128 | 3.3 kΩ, 5% or better, ≥1/8 W | Eight independent segment resistors per digit |
-| 20 | 220 Ω, ≥1/8 W | Sixteen buffered display branches and four DATA branches |
-| 12 | 4.7 kΩ, ≥1/8 W | Eight pull-ups on P_D0–P_D7 (Section 6.5), supervisor output pull-up, three status-LED resistors |
-| 27 | 10 kΩ, ≥1/8 W | Eight DIP inputs, five keys, five CPU control inputs, one oscillator feedback resistor, eight pull-ups on C_D0–C_D7 |
+| 2 | 47 kΩ, 1%, ≥1/8 W | MAX7219 RSET (ISET to DISP_V) |
+| 1 | 150 Ω, ≥1/8 W | Q1 base drive |
+| 14 | 4.7 kΩ, ≥1/8 W | Eight pull-ups on P_D0–P_D7 (Section 6.5), supervisor output pull-up, three status-LED resistors, Q2 base, Q1 base pull-up |
+| 30 | 10 kΩ, ≥1/8 W | Eight U14 input pull-ups (four keypad columns, four spare), five keys, five CPU control inputs, one oscillator feedback resistor, eight pull-ups on C_D0–C_D7, three display-line pull-downs |
 | 1 | 100 kΩ, ≥1/8 W | CPU reset-release RC charging resistor |
-| 7 | 1 kΩ, ≥1/8 W | Five key discharge resistors, CPU reset button, reset-diode current limiting |
+| 10 | 1 kΩ, ≥1/8 W | Five key discharge resistors, CPU reset button, reset-diode current limiting, three display-line series resistors |
 | 1 | 1 kΩ, **1/4 W** | Permanent 5 V rail bleeder/minimum-load resistor |
-| 50 | 100 nF ceramic, ≥16 V, short leads | 43 DIP bypasses, supervisor bypass, regulator output bypass, five key RCs |
-| 10 | 10 µF electrolytic, ≥10 V | One local bulk capacitor per breadboard |
+| 35 | 100 nF ceramic, ≥16 V, short leads | 28 DIP bypasses (U21/U22 on DISP_V), supervisor bypass, regulator output bypass, five key RCs |
+| 9 | 10 µF electrolytic, ≥10 V | One local bulk capacitor per breadboard, plus one at each MAX7219 V+ |
 | 1 | 560 pF C0G/NP0, ≥16 V | Oscillator capacitor (Section 5.3) |
 | 1 | 1 µF, ≥10 V | CPU reset-release RC capacitor |
 | 1 | 330 nF, ≥25 V | Regulator input bypass |
@@ -128,15 +135,18 @@ Quantities below cover the populated ten-board design. Buy modest spares. The LE
 | 1 | 47 µF electrolytic, ≥10 V | Regulator output bulk |
 | 1 | 1N4148 signal diode | Fast reset-RC discharge path, through 1 kΩ |
 | 1 | 1N5819 Schottky diode | Battery reverse-polarity protection |
+| 4 | BAT85 (or BAT43, 1N5711-class) small-signal Schottky diode | Keypad row diodes DK1–DK4 |
+| 1 | BC327-25 PNP, TO-92 (or 2N2907A) | Q1 display supply switch |
+| 1 | 2N3904 NPN, TO-92 (or 2N2222A, BC337) | Q2 display switch driver |
 | 3 | 3 mm LEDs: red for FAULT, yellow for MESSAGE_LOCK and RESULT_LOCK | Status indicators, Section 9.2 |
-| 1 | Eight-pole SPST DIP switch | Public byte entry |
+| 1 | 4×4 membrane matrix keypad, 8-pin 2.54 mm connector | Hex entry (Section 8) |
 | 5 | Normally-open momentary switches | ENTER, NEXT, BACK, APPROVE, ABORT |
 | 1 | Normally-open momentary switch | CPU RESET, electrically separate from cold clear |
 | 1 | SPST power switch, ≥1 A at 15 V DC | Battery input disconnect |
 | 1 | 500 mA fuse and holder | Battery positive lead |
 | 1 | Eight-AA holder plus eight alkaline AA cells | Battery fixture, about 12 V fresh |
 | 1 | TO-220 heatsink, ≤15 °C/W, with hardware | U43; keep off solderless contacts |
-| 10 | Good-quality 830-tie, 63-row solderless breadboards | BB1–BB10; buy at least one spare |
+| 7 | Good-quality 830-tie, 63-row solderless breadboards | BB1–BB5, BB9, BB10; buy at least one spare |
 | 1 | Passive perfboard about 250 × 30–50 mm | Single-row LED panel; two rows of eight are an alternative |
 | 1 | Small passive perfboard and screw terminals | Fused battery/regulator fixture |
 | As needed | 22 AWG solid insulated hookup wire, ground returns, labels | Point-to-point wiring and labelled harnesses |
@@ -161,12 +171,12 @@ The row ranges identify occupied terminal strips, not complete wire-routing path
 
 ### 3.2 Board arrangement
 
-Orient each breadboard with its long dimension north–south. The arrangement below keeps the CPU, the bus interface and the memories adjacent in that order, and places one display bank on each driver board. Use approximately 15 mm between board edges. A roughly 420 × 420 mm baseplate is a planning allocation for common 55 × 165 mm boards plus the LED panel; confirm actual dimensions before fabrication.
+Orient each breadboard with its long dimension north–south. The arrangement below keeps the CPU, the bus interface and the memories adjacent in that order; the two display drivers share BB5. Use approximately 15 mm between board edges. A roughly 420 × 420 mm baseplate is a planning allocation for common 55 × 165 mm boards plus the LED panel; confirm actual dimensions before fabrication.
 
 | Position | Column 1 | Column 2 | Column 3 | Column 4 | Column 5 | Sidecar |
 |---|---|---|---|---|---|---|
 | North row | BB1 CPU/clock | BB10 bus interface | BB2 memory | BB3 decode/fanout | BB4 controls | BB9 locks |
-| South row | BB5 digits 0–3 | BB6 digits 4–7 | BB7 digits 8–11 | BB8 digits 12–15 | Switch and button panel | Fused power fixture |
+| South row | BB5 display drivers | Switch, button and keypad panel | Fused power fixture | | | |
 | Front edge | LED panel D0–D15, byte group labels | | | | | |
 
 Keep U7-to-U1 PHI2 wiring short, preferably under 50 mm, with a nearby ground return; the CPU PHI2 net stays on BB1. C_D runs only between BB1 and BB10 and P_D from BB10 to BB2 and BB4. With this placement the generated wiring list gives roughly 280 mm per C_D line and 450–550 mm per P_D line, about 36 pF and 70 pF; the binding limits are the capacitance criteria of Section 6.5, not wire length. These estimates do not replace waveform measurements. Do not run display return current through the CPU ground jumper.
@@ -193,35 +203,20 @@ For example, U1 begins at c41: pin 1=c41, pin 20=c60, pin 21=g60, and pin 40=g41
 | BB3 | U12 | e12 | Pin 14 at f12 | 12–18 |
 | BB3 | U13 | e22 | Pin 16 at f22 | 22–29 |
 | BB3 | U19 | e33 | Pin 20 at f33 | 33–42 |
-| BB3 | U20 | e46 | Pin 20 at f46 | 46–55 |
 | BB4 | U14 | e2 | Pin 20 at f2 | 2–11 |
 | BB4 | U15 | e15 | Pin 20 at f15 | 15–24 |
 | BB4 | U16 | e28 | Pin 20 at f28 | 28–37 |
 | BB4 | U17 | e41 | Pin 14 at f41 | 41–47 |
 | BB4 | U18 | e51 | Pin 14 at f51 | 51–57 |
-| BB5 | U21 | e3 | Pin 16 at f3 | 3–10 |
-| BB5 | U22 | e16 | Pin 16 at f16 | 16–23 |
-| BB5 | U23 | e29 | Pin 16 at f29 | 29–36 |
-| BB5 | U24 | e42 | Pin 16 at f42 | 42–49 |
-| BB6 | U25 | e3 | Pin 16 at f3 | 3–10 |
-| BB6 | U26 | e16 | Pin 16 at f16 | 16–23 |
-| BB6 | U27 | e29 | Pin 16 at f29 | 29–36 |
-| BB6 | U28 | e42 | Pin 16 at f42 | 42–49 |
-| BB7 | U29 | e3 | Pin 16 at f3 | 3–10 |
-| BB7 | U30 | e16 | Pin 16 at f16 | 16–23 |
-| BB7 | U31 | e29 | Pin 16 at f29 | 29–36 |
-| BB7 | U32 | e42 | Pin 16 at f42 | 42–49 |
-| BB8 | U33 | e3 | Pin 16 at f3 | 3–10 |
-| BB8 | U34 | e16 | Pin 16 at f16 | 16–23 |
-| BB8 | U35 | e29 | Pin 16 at f29 | 29–36 |
-| BB8 | U36 | e42 | Pin 16 at f42 | 42–49 |
+| BB5 | U21 | c3 | Pin 24 at g3 | 3–14 |
+| BB5 | U22 | c18 | Pin 24 at g18 | 18–29 |
 | BB9 | U37 | e3 | Pin 14 at f3 | 3–9 |
 | BB9 | U38 | e14 | Pin 14 at f14 | 14–20 |
 | BB9 | U39 | e25 | Pin 16 at f25 | 25–32 |
 | BB9 | U40 | e37 | Pin 14 at f37 | 37–43 |
 | BB9 | U41 | e48 | Pin 14 at f48 | 48–54 |
 
-BB1 rows 2–11 (freed by moving U4) carry the eight 10 kΩ C_D pull-ups next to the CPU data pins' harness entry. BB10 rows 36–50 carry the eight 4.7 kΩ P_D pull-ups and the P_D harness terminations. U42 and U43 belong on the power perfboard. Mount the TO-220 regulator mechanically with its heatsink; do not suspend its weight from solderless contacts. The DIP switch and pushbuttons can sit on a separate passive panel or free terminal strips, with the individual connections shown in Section 8.
+BB1 rows 2–11 (freed by moving U4) carry the eight 10 kΩ C_D pull-ups next to the CPU data pins' harness entry. BB10 rows 36–50 carry the eight 4.7 kΩ P_D pull-ups and the P_D harness terminations. BB5 rows 33–55 carry Q1, Q2, their resistors, the two RSET resistors and the DISP_V bulk capacitors. U42 and U43 belong on the power perfboard. Mount the TO-220 regulator mechanically with its heatsink; do not suspend its weight from solderless contacts. The DIP switch and pushbuttons can sit on a separate passive panel or free terminal strips, with the individual connections shown in Section 8.
 
 ### 3.4 Harness labels
 
@@ -232,7 +227,8 @@ BB1 rows 2–11 (freed by moving U4) carry the eight 10 kΩ C_D pull-ups next to
 | Peripheral data | P_D0–P_D7, GND | U4 outputs, U44 inputs, RAM, ROM, U14/U15 outputs, U16 inputs, 4.7 kΩ pull-ups; rise-time limit of Section 11.2 item 7 |
 | Core control | RWB, nRWB, PHI2, Q_A, /Q_A, Q_B, /Q_B, Q_C, /Q_C, EARLY, RD_WIN_N, RWB_CYCLE, HOLD_N, LATCH_OE_N, COLD_CLEAR_N, CPU_RESET_N | Keep clocks and window strobes away from LED-current loops |
 | Lock interface | A13, A14, RAM_SELECT, nRWB, PHI2_FAULT, reset nets, Y3_N, Y4_N, WR_PHASE_N | Add WRITE_BLOCK and status returns |
-| Each LED bank | DATA, SRCLK, RCLK, OE_N, SRCLR_N, +5 V, GND | Four independently buffered clock banks; no serial chaining between banks |
+| Display | MX_DIN, MX_CLK, MX_LOAD, DISPLAY_ON, +5 V, GND to BB5; SEGA_n–SEGDP_n and DIG0_n–DIG7_n (n = 0, 1) from BB5 to the LED panel | Keep the 32-wire panel bundle together; BB5 takes its own star ground from the power fixture |
+| Keypad | KROW1–KROW4, KCOL1–KCOL4 | 8-wire ribbon from BB4 to the keypad connector |
 
 Red is +5 V and black is GND throughout. Mark the battery input separately so it cannot be mistaken for the regulated logic rail. Do not attach the 12 V battery rail to a 5 V breadboard rail.
 
@@ -269,7 +265,7 @@ $5100–$5FFF and $6100–$7EFF are not secret workspace in this broad-lock impl
 
 | Canonical address | Direction | Function |
 |---|---|---|
-| `$7F00` | Read | Eight manual byte switches; invert the raw byte in software |
+| `$7F00` | Read | Keypad columns D0–D3 (active low while a row is driven), D4–D7 read 1 |
 | `$7F01` | Read | D0 ENTER, D1 NEXT, D2 BACK, D3 APPROVE, D4 ABORT, D5 MESSAGE_LOCK, D6 RESULT_LOCK, D7 FAULT |
 | `$7F02` | Write | GPIO/display control latch |
 | `$7F03` | Write | Set MESSAGE_LOCK; data value ignored |
@@ -292,7 +288,7 @@ Keep the regulator input at least 7.5 V after the reverse-polarity diode for the
 
 Worst-case regulator dissipation is (12.8 − 0.35 − 5.0) V × 0.34 A ≈ 2.5 W plus quiescent loss, where 0.34 A sums the 214 mA display bound, SRAM and EPROM active current, HCT ΔICC for P_D receivers at a 2.4 V high, pull-ups, the bleeder and status LEDs. With a ≤15 °C/W heatsink and about 5 °C/W junction-to-case, that is roughly a 51 °C rise over ambient. Measure the tab temperature during the all-segments-on test and keep hot metal off plastic breadboards.
 
-Maintain approximately 4.85–5.15 V at the board rails during normal bench operation; the absolute qualified system range must respect every exact component datasheet. The display alone is estimated around 120 mA for all segments on at nominal voltage, with a conservative resistor-only bound around 214 mA. Budget the CPU, EPROM, SRAM, gates, pull-up currents and transients separately. No finished power-consumption or battery-life measurement is claimed.
+Maintain approximately 4.85–5.15 V at the board rails during normal bench operation; the absolute qualified system range must respect every exact component datasheet. The display alone is bounded at about 210 mA with every segment lit at full intensity (two MAX7219 at about 12 mA peak per segment, Section 8), and draws much less at the normal intensity setting. Budget the CPU, EPROM, SRAM, gates, pull-up currents and transients separately. No finished power-consumption or battery-life measurement is claimed.
 
 ### 5.2 U42 supervisor
 
@@ -584,17 +580,15 @@ SRAM /WE is also qualified functionally by SRAM /CE: a low RAM_WE_N during a ROM
 
 ## 8. Input and display wiring
 
-Chosen display
+Chosen display and input
 
-Sixteen raw common-cathode seven-segment digits, each driven statically by one SN74HC595N. Four independent chains of four digits avoid a serial-data boundary crossing separately buffered clock banks. There is no display MCU, multiplex scan, firmware module or transistor power driver. Each segment has its own 3.3 kΩ resistor.
-
-Use SN74HC595N, which TI specifies in PDIP16. The current TI SN74HCT595 datasheet lists TSSOP16 only. HC inputs are appropriate here because the GPIO and fanout buffers provide full CMOS output levels. The low-current display is a prototype choice; check one populated digit for legibility at the intended ambient light before assembling sixteen.
+Sixteen raw common-cathode seven-segment digits driven by two daisy-chained MAX7219 serial LED drivers (U21: digits 0–7, U22: digits 8–15), and a passive 4×4 membrane keypad scanned by firmware. Both use plain, widely cloned interfaces: the MAX7219 is a fixed-function shift-register-and-multiplexer with no firmware (second sources: ams-OSRAM AS1106/AS1107, HTCSEMI HT7219 and others; pin- and protocol-compatible), and the keypad is a bare switch matrix made by many vendors. There is no display MCU, character generator or keyboard controller. Revision 0.4's sixteen 74HC595s, two fanout buffers, 128 segment resistors and DIP switch are removed.
 
 I/O register contract
 
 | Address | Direction | Meaning |
 |---|---|---|
-| `$7F00` | Read | Eight DIP switch inputs; invert in firmware so a closed/ON switch is logical 1 |
+| `$7F00` | Read | Keypad columns: D0–D3 = C1–C4, 0 = a key in that column on a row currently driven low; D4–D7 read 1 |
 | `$7F01` | Read | Keys D0–D4 and security state D5–D7 |
 | `$7F02` | Write | GPIO port described below |
 
@@ -606,43 +600,43 @@ GPIO byte at $7F02
 
 | Bit | Meaning | Reset value |
 |---|---|---|
-| 0 | Shared serial DATA | 0 |
-| 1 | Bank 0 shift clock | 0 |
-| 2 | Bank 1 shift clock | 0 |
-| 3 | Bank 2 shift clock | 0 |
-| 4 | Bank 3 shift clock | 0 |
-| 5 | Shared storage-register LATCH clock | 0 |
-| 6 | DISPLAY_ENABLE, active high | 0, blank |
-| 7 | Reserved; always write 0 | 0 |
+| 0 | DISP_DIN: MAX7219 serial data | 0 |
+| 1 | DISP_CLK: MAX7219 shift clock (data sampled on the rising edge) | 0 |
+| 2 | KROW1 drive, active low | 0 |
+| 3 | KROW2 drive, active low | 0 |
+| 4 | KROW3 drive, active low | 0 |
+| 5 | DISP_LOAD: rising edge latches the last 16 bits in each MAX7219 | 0 |
+| 6 | DISPLAY_ENABLE, active high: powers the display (below) | 0, display unpowered |
+| 7 | KROW4 drive, active low | 0 |
 
-Maintain a software shadow of this write-only byte. Update a complete byte with STA; do not issue read-modify-write instructions to an I/O register.
+The idle value with the display on and no keypad row selected is $DC. Maintain a software shadow of this write-only byte. Update a complete byte with STA; do not issue read-modify-write instructions to an I/O register.
 
 U16: SN74HCT273N, PDIP20
 
 | Pin | Connect |
 |---|---|
 | 1 `/CLR` | `CPU_RESET_N` |
-| 2 `1Q` | DATA |
+| 2 `1Q` | DISP_DIN → U19 pin 2 |
 | 3 `1D` | P_D0 |
 | 4 `2D` | P_D1 |
-| 5 `2Q` | CLK0 |
-| 6 `3Q` | CLK1 |
+| 5 `2Q` | DISP_CLK → U19 pin 4 |
+| 6 `3Q` | KROW1_DRV → row diode DK1 cathode |
 | 7 `3D` | P_D2 |
 | 8 `4D` | P_D3 |
-| 9 `4Q` | CLK2 |
+| 9 `4Q` | KROW2_DRV → DK2 cathode |
 | 10 | GND |
 | 11 CLK | `WR_GPIO_N` |
-| 12 `5Q` | CLK3 |
+| 12 `5Q` | KROW3_DRV → DK3 cathode |
 | 13 `5D` | P_D4 |
 | 14 `6D` | P_D5 |
-| 15 `6Q` | LATCH |
-| 16 `7Q` | DISPLAY_ENABLE |
+| 15 `6Q` | DISP_LOAD → U19 pin 6 |
+| 16 `7Q` | DISPLAY_ENABLE → U18 pin 2 |
 | 17 `7D` | P_D6 |
 | 18 `8D` | P_D7 |
-| 19 `8Q` | No connection |
+| 19 `8Q` | KROW4_DRV → DK4 cathode |
 | 20 | +5 V |
 
-Place 100 nF between pins 20 and 10. Reset clears GPIO, independently keeping DISPLAY_ENABLE low. HCT273 captures on the rising edge of pin 11.
+Place 100 nF between pins 20 and 10. Reset clears GPIO, which switches the display off. HCT273 captures on the rising edge of pin 11.
 
 U18: CD74HC10E, PDIP14
 
@@ -659,7 +653,7 @@ RD_WIN_N = !(Q_A & /Q_C & RWB)
 | 1 | CPU_RESET_N |
 | 2 | DISPLAY_ENABLE |
 | 13 | FAULT_N from the security board; tie +5 V if that board is absent |
-| 12 | DISPLAY_OE_N |
+| 12 | DISPLAY_OE_N → U19 pin 1, U8 pin 9 |
 | 3 | Q_A from U6 pin 5 |
 | 4 | /Q_C from U45 pin 8 |
 | 5 | RWB from U1 pin 34 |
@@ -669,59 +663,50 @@ RD_WIN_N = !(Q_A & /Q_C & RWB)
 | 9, 10, 11 | GND, unused gate inputs |
 | 8 | No connection, unused output |
 
-Add 100 nF between 14 and 7. CD74HC10E is a verified PDIP14 part. Both HC gates receive only full CMOS control signals (HCT74 outputs, the HCT273, the CPU's RWB); do not substitute a TTL-memory output for one of them. The fault latch supplies FAULT_N directly from its complementary output and does not clear on CPU reset.
+Add 100 nF between 14 and 7. CD74HC10E is a verified PDIP14 part. Both HC gates receive only full CMOS control signals (HCT74 outputs, the HCT273, the CPU's RWB); do not substitute a TTL-memory output for one of them. The fault latch supplies FAULT_N directly from its complementary output and does not clear on CPU reset. U8 pin 9 takes DISPLAY_OE_N and its output pin 8 is DISPLAY_ON, the active-high display power request.
 
-U19 / U20: two SN74HCT244N, PDIP20
+Hardware display blanking
 
-For both ICs, pin 20=+5 V, pin 10=GND, pins 1 and 19=GND to enable their outputs; 100 nF per IC. Each outgoing bank signal passes through its own 220 Ω series resistor placed next to the buffer output. There are 16 such resistors. Each output drives exactly four HC595 inputs within its bank.
+The MAX7219 has no output-enable pin, so the display is blanked in hardware by removing its supply. DISPLAY_ON = CPU_RESET_N & DISPLAY_ENABLE & FAULT_N drives a two-transistor high-side switch onto the switched rail DISP_V, which feeds only U21 and U22:
 
-| IC | Input pin and signal | Output pin | Bank destination |
-|---|---|---|---|
-| U19 | 2: CLK0 | 18 | Bank 0 SRCLK |
-| U19 | 4: CLK1 | 16 | Bank 1 SRCLK |
-| U19 | 6: CLK2 | 14 | Bank 2 SRCLK |
-| U19 | 8: CLK3 | 12 | Bank 3 SRCLK |
-| U19 | 11: LATCH | 9 | Bank 0 RCLK |
-| U19 | 13: LATCH | 7 | Bank 1 RCLK |
-| U19 | 15: LATCH | 5 | Bank 2 RCLK |
-| U19 | 17: LATCH | 3 | Bank 3 RCLK |
-| U20 | 2: DISPLAY_OE_N | 18 | Bank 0 `/OE` |
-| U20 | 4: DISPLAY_OE_N | 16 | Bank 1 `/OE` |
-| U20 | 6: DISPLAY_OE_N | 14 | Bank 2 `/OE` |
-| U20 | 8: DISPLAY_OE_N | 12 | Bank 3 `/OE` |
-| U20 | 11: CPU_RESET_N | 9 | Bank 0 `/SRCLR` |
-| U20 | 13: CPU_RESET_N | 7 | Bank 1 `/SRCLR` |
-| U20 | 15: CPU_RESET_N | 5 | Bank 2 `/SRCLR` |
-| U20 | 17: CPU_RESET_N | 3 | Bank 3 `/SRCLR` |
+| Part | Connection |
+|---|---|
+| Q2, 2N3904 NPN (TO-92) | Base ← DISPLAY_ON through 4.7 kΩ; emitter GND; collector → 150 Ω → Q1 base |
+| Q1, BC327-25 PNP (TO-92) | Emitter +5 V; base pulled to +5 V through 4.7 kΩ; collector = DISP_V |
+| DISP_V | U21 pin 19 and U22 pin 19; 10 µF electrolytic + 100 nF at each chip |
 
-DATA fans out from U16 pin 2 through four separate 220 Ω branch resistors, one to SER of each bank's first shift register. Never join outputs of separate buffers. Keep clock branches short and scope the actual rising/falling edges and serial hold timing on the assembled breadboard. A slow bit rate alone does not cure clock skew.
+A CPU reset, a FAULT, or DISPLAY_ENABLE=0 removes power and blanks the panel within the decay of the DISP_V capacitors. On power-up both MAX7219s reset every control register and enter shutdown with a blank display, so a faulted CPU cannot leave a stale page lit and a re-enabled display is always blank until firmware writes it. Equivalent jellybean parts (2N2222/BC337 for Q2, 2N2907A for Q1) are acceptable.
 
-Display bank wiring
+U19: SN74HCT244N, PDIP20 (display interface buffer)
 
-The global mapping is SR[b,j] = U(21 + 4*b + j), with b=0..3 and j=0..3. Bank b contains registers SR[b,0] through SR[b,3], driving display digits 4*b through 4*b+3. Digit 0 is leftmost. Within a bank only, connect pin 9 (QH') of register j to pin 14 (SER) of j+1. The last pin 9 is unconnected. There is no serial connection between banks.
-
-All sixteen SN74HC595N devices use this pin assignment:
+The three serial lines pass through U19, which is enabled by the same term (pin 1 = DISPLAY_OE_N), so an unpowered MAX7219 never has its inputs driven. Each output goes through a 1 kΩ series resistor to the MAX7219 line, and each line has a 10 kΩ pull-down to GND: with the display off the lines sit at 0 V, and with it on the divider gives about 4.55 V, above the MAX7219's 3.5 V input-high level and within its V+ + 0.3 V input limit while V+ is one transistor saturation drop below +5 V.
 
 | Pin | Connect |
 |---|---|
-| 1 QB | 3.3 kΩ → display segment b |
-| 2 QC | 3.3 kΩ → segment c |
-| 3 QD | 3.3 kΩ → segment d |
-| 4 QE | 3.3 kΩ → segment e |
-| 5 QF | 3.3 kΩ → segment f |
-| 6 QG | 3.3 kΩ → segment g |
-| 7 QH | 3.3 kΩ → decimal point |
-| 8 | GND |
-| 9 QH' | Next register's SER in this bank; last register: no connection |
-| 10 `/SRCLR` | This bank's buffered CPU_RESET_N |
-| 11 SRCLK | This bank's buffered shift clock |
-| 12 RCLK | This bank's buffered LATCH |
-| 13 `/OE` | This bank's buffered DISPLAY_OE_N |
-| 14 SER | Bank DATA for first register; previous register pin 9 otherwise |
-| 15 QA | 3.3 kΩ → segment a |
-| 16 | +5 V |
+| 1 `1OE` | DISPLAY_OE_N |
+| 2 → 18 | DISP_DIN → 1 kΩ → MX_DIN (U21 pin 1); 10 kΩ MX_DIN → GND |
+| 4 → 16 | DISP_CLK → 1 kΩ → MX_CLK (U21 and U22 pin 13); 10 kΩ → GND |
+| 6 → 14 | DISP_LOAD → 1 kΩ → MX_LOAD (U21 and U22 pin 12); 10 kΩ → GND |
+| 8, 11, 13, 15, 17 | GND, unused inputs |
+| 12, 9, 7, 5, 3 | No connection |
+| 19 `2OE` | +5 V (second half disabled) |
+| 10 / 20 | GND / +5 V, 100 nF between them |
 
-Each register gets 100 nF from 16 to 8. Each bank gets a 10 µF bulk capacitor near its supply entry. Use a ground return alongside the signal bundle; do not route LED current through the CPU ground jumper.
+U21, U22: MAX7219CNG (or AS1107, HT7219), PDIP24 0.6 in
+
+| Pin | U21 (digits 0–7) | U22 (digits 8–15) |
+|---|---|---|
+| 1 DIN | MX_DIN | MX_DOUT1 (from U21 pin 24) |
+| 2, 11, 6, 7, 3, 10, 5, 8 (DIG 0–7) | DIG0_0 … DIG7_0 → cathodes of digits 0–7 | DIG0_1 … DIG7_1 → cathodes of digits 8–15 |
+| 4, 9 GND | GND (both) | GND (both) |
+| 12 LOAD | MX_LOAD | MX_LOAD |
+| 13 CLK | MX_CLK | MX_CLK |
+| 14, 16, 20, 23, 21, 15, 17, 22 (SEG A, B, C, D, E, F, G, DP) | SEGA_0 … SEGDP_0, bussed to digits 0–7 | SEGA_1 … SEGDP_1, bussed to digits 8–15 |
+| 18 ISET | 47 kΩ to DISP_V | 47 kΩ to DISP_V |
+| 19 V+ | DISP_V | DISP_V |
+| 24 DOUT | MX_DOUT1 → U22 pin 1 | No connection |
+
+The DIG pin order is not sequential: DIG0=2, DIG1=11, DIG2=6, DIG3=7, DIG4=3, DIG5=10, DIG6=5, DIG7=8. RSET = 47 kΩ gives roughly 12 mA peak segment current with 2 V red LEDs (the datasheet table gives about 56 kΩ for 10 mA); brightness is then set in firmware with the intensity register. Confirm the RSET table, the 4.0–5.5 V supply range, the input thresholds and the serial timing (data setup 25 ns, CLK high/low and LOAD widths 50 ns, DOUT changing on CLK falling edges) against the delivered part's datasheet.
 
 SC56-11EWA display pins
 
@@ -737,33 +722,26 @@ Verified visually against Kingbright's manufacturer drawing, front view:
 | f | 9 |
 | g | 10 |
 | decimal point | 5 |
-| Common cathode | Both 3 and 8 → GND |
+| Common cathode | Both 3 and 8 → that digit's DIG line |
 
-Each output sources one segment through its individual resistor. Do not substitute a common-anode digit. Do not use one shared resistor in the common-cathode lead.
+Each digit's eight segment pins join its chip's SEG bus (all eight digits of a group in parallel); its two cathode pins join one DIG line. There are no per-segment resistors: the MAX7219 segment outputs are current sources. Do not substitute a common-anode digit.
 
-The package's two pin rows are 15.24 mm / 0.6 inch apart. They do not fit a 0.3-inch DIP placement. The raw digits can be mounted on passive 2.54 mm perfboard and jumpered to the driver breadboards.
+The package's two pin rows are 15.24 mm / 0.6 inch apart. They do not fit a 0.3-inch DIP placement. The raw digits are mounted on passive 2.54 mm perfboard with the SEG buses and DIG lines soldered there; a 32-wire harness (8 SEG + 8 DIG per group) runs from BB5.
 
 Passive front-panel placement
 
-On a 2.54 mm perfboard grid viewed from the illuminated front, put digit j's leftmost pin at column 1+6*j for j=0..15. Its top pin row is grid row 1 and bottom pin row is grid row 7. Top pins left to right are 10,9,8,7,6; bottom pins left to right are 1,2,3,4,5. Six columns of pitch per digit make a roughly 244 mm-wide panel. Preserve this front/back convention when soldering from the rear; do not mirror the netlist accidentally. Mark groups of two digits as one byte and groups of four as one driver bank.
-
-The driver breadboards BB5–BB8 each carry one four-digit bank: place the four PDIP16s across E/F at rows 3–10, 16–23, 29–36 and 42–49, all notches toward the lower row number. This assumes the usual 0.3-inch E–F gap and must be checked against the actual breadboard. Keep each four-register clock bank physically together as placed in Section 3.
+On a 2.54 mm perfboard grid viewed from the illuminated front, put digit j's leftmost pin at column 1+6*j for j=0..15. Its top pin row is grid row 1 and bottom pin row is grid row 7. Top pins left to right are 10,9,8,7,6; bottom pins left to right are 1,2,3,4,5. Six columns of pitch per digit make a roughly 244 mm-wide panel. Preserve this front/back convention when soldering from the rear; do not mirror the netlist accidentally. Mark groups of two digits as one byte and groups of eight as one driver.
 
 Current calculation
 
-At a nominal 5 V and approximately 1.9 V red-LED drop, each 3.3 kΩ segment draws about (5−1.9)/3300 = 0.94 mA. Eight lit segments per digit give about 7.5 mA per register and 120 mA across sixteen digits. These are estimates; forward voltage and light output vary.
-
-An intentionally conservative bound at the core's 5.25 V maximum and 5%-low resistor is 5.25/(3300*0.95) = 1.675 mA per output even if the LED were a short. Thus eight outputs draw less than 13.4 mA per register and 214.4 mA across the whole panel. Normal segment current is much lower than the HC595's characterized 6 mA output loading; the per-chip total is well below its 70 mA absolute supply-current limit. Absolute limits are ceilings, not design targets. Include IC current and switching transients separately in the total supply budget.
-
-Kingbright specifies brightness at 10 mA; it does not guarantee the desired room-light readability at this approximately 1 mA operating point. Verify a single digit first.
+Each MAX7219 multiplexes eight digits at 1/8 duty. At about 12 mA peak per segment, one chip draws at most about 8 × 12 mA + 8 mA quiescent ≈ 104 mA with every segment lit at full intensity, and the pair about 210 mA, comparable with revision 0.4's 214 mA resistor-only bound. Average segment current is about 1.5 mA, somewhat brighter than revision 0.4's 0.94 mA static drive. Q1 at about 210 mA with roughly 27 mA base drive saturates to a few hundred millivolts, leaving DISP_V near 4.7 V, inside the MAX7219's 4.0–5.5 V range. Check one digit for room-light legibility before assembling sixteen; raise the intensity register before lowering RSET.
 
 Firmware display protocol
 
-1. After reset, leave DISPLAY_ENABLE=0 and all four clocks/LATCH low.
-2. Reset clears the 595 shift register, not the storage/output register. Clock a complete 32 zero bits into each bank, then pulse LATCH while blank before displaying anything.
-3. For each bank, send segment bytes for its digits in the order 3,2,1,0; send each byte bit 7 first. Change DATA with all shift clocks low, wait at least 5 µs, raise only the selected bank clock, hold at least 5 µs, then lower it. Keep other bank clocks low. Those delays are a conservative software protocol, not proof of board timing.
-4. After loading all four banks, pulse shared LATCH once, with at least 5 µs separation from the final shift edge. Then enable the display. All sixteen output registers update together within buffer/skew delays.
-5. Blank or retain the old complete page while shifting a new one; never display the shifting intermediate register.
+1. Every register write is a 16-bit word, MSB first: D15–D12 ignored, D11–D8 register address, D7–D0 data. Change DIN with CLK low, raise CLK, lower CLK. Shift U22's word first, then U21's word (32 clocks), then pulse LOAD high and low: both chips latch together. Data entering U21 appears at its DOUT 16.5 clocks later.
+2. After reset or a fault the display is unpowered. Write the idle GPIO value $DC to power it, wait for DISP_V to settle, then initialize both chips: shutdown (register $C = 0), display test off ($F = 0), no decode ($9 = 0), scan all eight digits ($B = 7), intensity ($A), all eight digit registers ($1–$8), and only then normal operation ($C = 1). Digit RAM is undefined at power-up.
+3. To change a page, enter shutdown, rewrite the digit registers, then leave shutdown, so an intermediate page is never shown. Register n holds digit n−1 of each group.
+4. The digit register bit order is D7=DP, D6=A, D5=B, D4=C, D3=D, D2=E, D1=F, D0=G. Firmware keeps the font below in a,b,…,dp order and converts when writing.
 
 With bits 0..7 = a,b,c,d,e,f,g,dp, and active-high segments, the hexadecimal font bytes are:
 
@@ -772,6 +750,28 @@ With bits 0..7 = a,b,c,d,e,f,g,dp, and active-high segments, the hexadecimal fon
 | Mask | 3F | 06 | 5B | 4F | 66 | 6D | 7D | 07 | 7F | 6F | 77 | 7C | 39 | 5E | 79 | 71 |
 
 Blank=00, dash=40. Decimal points are normally off. Seven-segment b/d are lowercase to distinguish them from 8/0. Field and page labels must be unambiguous in the final user interface; a bank of unlabeled hex numbers alone is not sufficient transaction authorization.
+
+Keypad
+
+A generic 4×4 membrane keypad with an 8-pin 2.54 mm connector. Its most common pinout is pins 1–4 = rows R1–R4 (top to bottom) and pins 5–8 = columns C1–C4 (left to right); verify the actual part with a continuity meter before wiring.
+
+| Keypad line | Connection |
+|---|---|
+| R1–R4 | Anode of Schottky diodes DK1–DK4 (BAT85, BAT43 or equivalent small-signal Schottky); cathodes to U16 pins 6, 9, 12, 19 (KROW1_DRV–KROW4_DRV) |
+| C1–C4 | U14 pins 2–5 (KCOL1–KCOL4), each with its 10 kΩ pull-up |
+
+Firmware drives one row's GPIO bit low at a time (all others high) and reads $7F00: a 0 in D0–D3 is a key in that column. The diodes let only the selected row pull a column low, so two keys in the same column cannot short two row outputs. They must be Schottky: with a 10 kΩ pull-up the column low level is the diode drop plus the HCT273 output low, about 0.3 V with a BAT85 against the HCT 0.8 V input-low limit, while a silicon 1N4148 (about 0.6 V) would leave almost no margin. Three keys pressed in an L shape make a fourth appear (matrix ghosting); firmware accepts a key only when exactly one key is seen in a complete scan, and only after it is stable for three consecutive scans (about 30 ms at 50 kHz CPU clock).
+
+Key labels, read as hex digits:
+
+| | C1 | C2 | C3 | C4 |
+|---|---|---|---|---|
+| R1 | 1 | 2 | 3 | A |
+| R2 | 4 | 5 | 6 | B |
+| R3 | 7 | 8 | 9 | C |
+| R4 | * = E | 0 | # = F | D |
+
+Relabel * and # as E and F. A byte is two key presses.
 
 U14 / U15: two SN74HCT541N input buffers
 
@@ -788,7 +788,7 @@ For each device pin 20=+5 V, pin 10=GND, 100 nF between them. Pin 1 (/G1) is the
 | 6 | 8 | 12 → P_D6 |
 | 7 | 9 | 11 → P_D7 |
 
-For U14, give each input its own 10 kΩ pull-up to +5 V and one DIP-switch pole to GND. Firmware reads byte = read($7F00) XOR $FF. Wait for stable switches and require ENTER before accepting a byte. Never drive the data bus directly with the switches.
+For U14, every input has its own 10 kΩ pull-up to +5 V; inputs 0–3 are the keypad columns and inputs 4–7 are spare and read 1. Never drive the data bus directly from the keypad.
 
 For U15, bits 0..4 receive the Schmitt-conditioned keys below. Bit 5=MESSAGE_LOCK, bit 6=RESULT_LOCK, bit 7=FAULT from the security board; tie these three inputs to GND if it is absent. These inputs are status observations, not authorization to reset a latch.
 
@@ -810,7 +810,7 @@ Front-panel review convention
 
 Eight displayed bytes occupy all sixteen digits. A 32-byte public key takes four pages and a 64-byte signature takes eight pages. Keep byte order left-to-right exactly the order in the underlying byte string; hexadecimal display is not a reversal of the full integer.
 
-The first firmware UI must show a separate hexadecimal header page identifying the field and page number before its data page. Define fixed printed labels: 01=source, 02=recipient, 03=amount, 04=nonce account, 05=message SHA-512, 06=public key, 07=signature. For example a header starts F1 02 00 04 for field 02, page 0 of 4. Require deliberate NEXT/BACK navigation and a complete recipient review before APPROVE. Test seeds and diagnostic mode need an unmistakable separate profile indication. Boot status codes C0/C1/C2 (Section 10.1) occupy the two leftmost digits with the rest blank.
+The first firmware UI must show a separate hexadecimal header page identifying the field and page number before its data page. Define fixed printed labels: 01=source, 02=recipient, 03=amount, 04=nonce account, 05=message SHA-512, 06=public key, 07=signature. For example a header starts F1 02 00 04 for field 02, page 0 of 4. Require deliberate NEXT/BACK navigation and a complete recipient review before APPROVE. Test seeds and diagnostic mode need an unmistakable separate profile indication. Boot status codes C0/C1/C2 (Section 10.1) occupy the two leftmost digits with the rest blank. Envelope bytes are entered as hex pairs on the keypad with ENTER confirming each completed group; echo entered digits on the display. A full-page redraw takes on the order of 10,000 CPU cycles, so the entry loop should update only the digits that changed, to avoid missing key presses.
 
 Show amounts as explicit integer lamports, with a printed label and an optional separately checked decimal rendering. Compare full 32-byte addresses against an independently established address book; a truncated nickname or a hash alone is insufficient. The breadboard's CPU drives the display, so the panel is not an independent proof of what was signed.
 
@@ -1045,8 +1045,8 @@ R and S are 32 bytes each. The firmware test harness must compare all 64 bytes a
 2. Clock/reset only. Populate U5/U6/U7/U11/U42/U45. Verify master and the six Johnson states; observe COLD_CLEAR_N release before CPU_RESET_N, with at least two complete CPU clocks while CPU reset is still low. Check the PHI2 waveform at the eventual CPU pin location with the intended load. Confirm MASTER_CLK ≤600 kHz.
 3. CPU, ROM and bus interface. Fit U1/U3/U4/U44/U8–U13, both sets of pull-ups and bypasses. Program/read back the diagnostic image. Check reset-vector reads at $FFFC/$FFFD and fetches at $8000. Then run the bus-handoff checks of Section 11.2 before adding SRAM.
 4. SRAM. Fit U2 and confirm diagnostic-loop writes and reads at $0200. Repeat the handoff checks, which now exercise RAM. Test address and data walking patterns with a diagnostic ROM before placing any trust in RAM capacity.
-5. Input/GPIO. Populate U14–U18. Check switch polarity, key bits, default display blanking and exactly one rising WR_GPIO_N edge per intended store. The edge must occur two master periods before CPU PHI2 falls.
-6. One display digit. Check segment pin mapping, current, glyph shapes and room-light legibility with 3.3 kΩ resistors. Then populate the remaining driver banks and fanout buffers, and run the supervisor rail check of Section 5.2.
+5. Input/GPIO. Populate U14–U19. Check keypad column polarity, key bits, default display power-off and exactly one rising WR_GPIO_N edge per intended store. The edge must occur two master periods before CPU PHI2 falls.
+6. Display and keypad. Fit Q1/Q2 and check that DISP_V follows DISPLAY_ENABLE and drops on CPU reset and on FAULT. Fit U21 with one digit and check segment pin mapping, current and legibility at the intended intensity; then the remaining digits, U22, and the keypad (scan each key and confirm two-key and L-shaped presses are rejected). Run the supervisor rail check of Section 5.2.
 7. Bank locks. Add BB9, removing all temporary WRITE_BLOCK/status/FAULT_N straps. Check each protected bank, display blanking on fault, and the reset/recovery rows of Section 11.4.
 8. Cryptographic firmware. Port SHA-512, field/scalar operations and Ed25519; compare public vectors byte-for-byte. Only after this, implement the restrictive transaction parser and integration tests.
 
@@ -1069,7 +1069,7 @@ Any failed item is fixed and re-measured before step 4 of Section 11.1 proceeds.
 
 ### 11.3 Small diagnostic ROM generator
 
-This Python uses only the standard library. It creates a 32 KiB bus diagnostic, not a signer. Reset disables interrupts/decimal mode, initializes the stack, blanks GPIO, then repeatedly copies the raw byte-input port to $0200 and reads it back. The loop does not report RAM failures by itself; observe it with the test instruments and follow with stronger RAM diagnostics. NMI/IRQ/BRK lead to a fixed trap loop. The image is unchanged from revision 0.2; the hardware changes of this revision are transparent to it.
+This Python uses only the standard library. It creates a 32 KiB bus diagnostic, not a signer. Reset disables interrupts/decimal mode, initializes the stack, writes $00 to GPIO (display off, every keypad row driven low), then repeatedly copies the keypad port to $0200 and reads it back. The loop does not report RAM failures by itself; observe it with the test instruments and follow with stronger RAM diagnostics. NMI/IRQ/BRK lead to a fixed trap loop. The image is unchanged from revision 0.2; the hardware changes of this revision are transparent to it.
 
 ```python
 from pathlib import Path
@@ -1097,7 +1097,7 @@ print(output.name, len(rom), hashlib.sha256(rom).hexdigest())
 
 Expected SHA-256 of this exact 32,768-byte diagnostic image: 2ccbf316e45725a3cd3d759487b763487a8892b297b0f5f7f013de6fabf43ecb.
 
-All DIP switches open should read raw $FF; all closed should read $00. That is intentional: normal byte-entry firmware will invert the port. The diagnostic keeps the display blank throughout. It writes $0200 without checking FAULT, so it must not be used as a template for the boot sequence of Section 10.1.
+With no key pressed the port reads $FF; holding a key clears its column bit (for example key 1 gives $FE, keys 1 and 3 give $FA), because the diagnostic drives all rows low at once. The diagnostic keeps the display blank throughout. It writes $0200 without checking FAULT, so it must not be used as a template for the boot sequence of Section 10.1.
 
 Program the OTP chip with an external programmer using its exact supported algorithm; verify blank state, programming and full byte readback. Compare all 32,768 read-back bytes with the generated file. In the computer, ROM VPP remains at ordinary +5 V. No programming-voltage generator or programmer cable is part of the operating board.
 
@@ -1135,7 +1135,7 @@ The following are required additions to the earlier full signer architecture and
 | Complete reviewed ROM | SHA-512, Ed25519, error handling, fixed schedule, parser, UI, memory layout, the Section 10.1 state machine, independent build/readback |
 | Physical input isolation | Disconnect all external/public-input paths before live seed processing; define and test the local seed-entry mechanism |
 | Independent wipe/readback | Fixed counter/address mux/zero driver/comparator that clears all physical non-result SRAM, bypassing CPU bank locks only in wipe mode |
-| CPU and secret-input power isolation | Isolate every signal, remove supply, prevent back-power and verify discharge; reset alone does not erase registers. The isolation design must cover GPIO and both the LED shift-register and storage-register state, not RAM alone |
+| CPU and secret-input power isolation | Isolate every signal, remove supply, prevent back-power and verify discharge; reset alone does not erase registers. The isolation design must cover GPIO and the MAX7219 digit registers (cleared by removing DISP_V), not RAM alone |
 | Restricted public output | Fixed controller can read only the frozen public result after successful wipe, with CPU off; the CPU-driven review-only state of Section 10.1 does not provide this boundary |
 | Secure cold-clear and recovery policy | Prevent lock/fault reset and any new session until independent erasure/discharge has completed and been verified; supervisor POR alone is insufficient |
 | Fault coverage | Opcode-fetch region checks, malformed input rejection, brownouts, stuck gates, illegal state transitions and output clamp behavior |
@@ -1167,10 +1167,10 @@ Datasheet facts were checked on 26 October 2026. The connection choices, placeme
 15. TI SN74HCT244
 16. TI SN74HCT273
 17. TI CD74HC10
-18. TI SN74HC595
+18. Analog Devices (Maxim) MAX7219/MAX7221; ams-OSRAM AS1106/AS1107 (pin-compatible); HTCSEMI HT7219
 19. TI CD74HCT157
 20. TI application report, Implications of Slow or Floating CMOS Inputs (input-transition rate limits)
-21. Kingbright SC56-11EWA: pins, dimensions and optical/current ratings
+21. Kingbright SC56-11EWA: pins, dimensions and optical/current ratings; generic 4×4 membrane keypad (verify pinout per part); BAT85/BAT43 Schottky; BC327 and 2N3904 transistors
 22. Microchip MCP120/130: threshold ranges (including the 460 option) and TO-92 bondouts
 23. ST L78: regulator pins, output tolerance, dropout and application circuits
 24. RFC 8032: Ed25519 algorithm and public vectors (section 7.1)

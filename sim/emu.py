@@ -23,7 +23,8 @@ class M(ctypes.Structure):
                 ("last_pc", ctypes.c_uint16),
                 ("sr", ctypes.c_uint32 * 4), ("st", ctypes.c_uint32 * 4),
                 ("prev_gpio", ctypes.c_uint8),
-                ("trace", ctypes.c_uint64)]
+                ("trace", ctypes.c_uint64),
+                ("mxdig", (ctypes.c_uint16 * 8) * 2)]
 
 
 _lib = None
@@ -75,10 +76,21 @@ class Machine:
         return self.m.cycles
 
     def display_masks(self):
-        """Segment masks of the 16 digits, from the emulated 595 storage registers."""
+        """Segment masks (bit0=a .. bit6=g, bit7=dp) of the 16 digits from the
+        emulated MAX7219 registers; None for a digit never written."""
         out = []
-        for b in range(4):
-            st = self.m.st[b]
-            for j in range(4):
-                out.append((st >> (8 * j)) & 0xFF)
+        for c in range(2):
+            on = self.m.st[c] & 1
+            for i in range(8):
+                d = self.m.mxdig[c][i]
+                if not on:
+                    out.append(0)
+                elif d > 0xFF:
+                    out.append(None)
+                else:
+                    m = d & 0x80
+                    for seg in range(7):
+                        if d & (1 << (6 - seg)):
+                            m |= 1 << seg
+                    out.append(m)
         return out

@@ -49,7 +49,8 @@ def erc(sim):
         if name not in srcs and net.pullup_ohms is None:
             errors.append(f"net {name}: inputs {[f'{p.name}.{pin}' for p, pin in lst]} have no source")
         if name in srcs and all(r == "tri" for _, _, r in srcs[name]) and net.pullup_ohms is None:
-            logic = [f"{p.name}.{pin}" for p, pin in lst if p.kind not in ("SC56-11", "LOAD", "RSER")]
+            # LED loads, series resistors and the keypad's diode-isolated rows float by design
+            logic = [f"{p.name}.{pin}" for p, pin in lst if p.kind not in ("SC56-11", "LOAD", "RSER", "KEYPAD")]
             # series resistors pass a driven level through; check what feeds them
             feeders = [p for p, _, _ in srcs[name] if p.kind != "RSER"]
             if logic and feeders:
@@ -80,7 +81,7 @@ def placement():
             problems.append(f"{u}: rows {lo}-{hi} hold {hi - lo + 1} pins per side, need {npins // 2}")
         if hi > 63:
             problems.append(f"{u}: row {hi} beyond 63-row board")
-        wide = npins in (28, 40)
+        wide = npins in (24, 28, 40)
         if wide and (c1, c2) != ("c", "g"):
             problems.append(f"{u}: 0.6-inch DIP not in c/g")
         if not wide and (c1, c2) != ("e", "f"):
@@ -165,41 +166,49 @@ def contained(inner, outer, tol):
 
 
 # ---------------------------------------------------------------------------
-# BOM quantities (Section 2) against the transcribed netlist
+# BOM quantities (Section 2) against the generated physical layout
 # ---------------------------------------------------------------------------
 
-def bom(sim):
-    """Return [(item, spec_qty, netlist_qty)] for the countable BOM lines."""
+def bom(L):
+    """Return [(item, spec_qty, layout_qty)] for the countable BOM lines.
+    Counts come from sim/layout.py, which places every physical part."""
     text = spec_text()
 
     def qty(pattern):
         m = re.search(r"^\| (\d+) \| " + pattern, text, re.M)
         return int(m.group(1)) if m else None
 
-    parts = sim.parts.values()
-    ics = [p for p in parts if re.fullmatch(r"U\d+", p.name) and p.kind not in BEHAVIOURAL]
-    dips = len(ics)                                     # U42/U43 are not in the logic netlist
-    pullups = {n.name: n.pullup_ohms for n in sim.nets.values() if n.pullup_ohms}
-    n47 = sum(1 for v in pullups.values() if v == 4.7e3)
-    n10 = sum(1 for v in pullups.values() if v == 10e3)
-    leds = sum(1 for p in parts if p.name.startswith("LED_"))
-    keys = sum(1 for n in sim.nets if n.startswith("KEYIN_"))
-    rser = [p for p in parts if p.kind == "RSER"]
-    seg_r = sum(1 for p in rser if p.name.startswith("R_U"))
-    branch_r = len(rser) - seg_r
-    digits = sum(1 for p in parts if p.kind == "SC56-11")
+    items = L.items
+    ics = {u for (u, _) in L.pin_hole}
+
+    def count(kind=None, value=None, prefix=None):
+        n = 0
+        for it in items:
+            if kind and it["kind"] != kind:
+                continue
+            v = it["value"].split()[0]
+            if value is not None and v != value:
+                continue
+            if prefix and not it["ref"].startswith(prefix):
+                continue
+            n += 1
+        return n
     m = re.search(r"Installed total: (\d+) ICs.*?; (\d+) are DIP", text)
     return [
-        ("DIP ICs", int(m.group(2)), dips),
-        ("all ICs (DIP + U42 + U43)", int(m.group(1)), dips + 2),
-        ("SC56-11EWA digits", qty(r"Kingbright"), digits),
-        ("3.3k segment resistors", qty(r"3\.3 kΩ"), seg_r),
-        ("220R branch resistors", qty(r"220 Ω"), branch_r),
-        # P_D pull-ups + POR pull-up + status LED resistors
-        ("4.7k resistors", qty(r"4\.7 kΩ"), n47 + leds),
-        # C_D + DIP-switch + CPU control pull-ups + key pull-ups + oscillator R
-        ("10k resistors", qty(r"10 kΩ"), n10 + keys + 1),
-        # one bypass per DIP + supervisor + regulator output + key RCs
-        ("100nF capacitors", qty(r"100 nF"), dips + 2 + keys),
-        ("status LEDs", qty(r"3 mm LEDs"), leds),
+        ("DIP ICs", int(m.group(2)), len(ics)),
+        ("all ICs (DIP + U42 + U43)", int(m.group(1)), len(ics) + count(kind="U")),
+        ("SC56-11EWA digits", qty(r"Kingbright"), count(kind="DIGIT")),
+        ("47k RSET", qty(r"47 kΩ"), count("R", "47k")),
+        ("150R", qty(r"150 Ω"), count("R", "150")),
+        ("4.7k resistors", qty(r"4\.7 kΩ"), count("R", "4.7k")),
+        ("10k resistors", qty(r"10 kΩ"), count("R", "10k")),
+        ("1k resistors (1/8 W)", qty(r"1 kΩ, ≥1/8 W"), count("R", "1k") - count("R", "1k", "R_BLEED")),
+        ("100nF capacitors", qty(r"100 nF"), count("C", "100n")),
+        ("10uF capacitors", qty(r"10 µF"), count("C", "10uF")),
+        ("Schottky row diodes", qty(r"BAT85"), count("D", prefix="DK")),
+        ("status LEDs", qty(r"3 mm LEDs"), count(kind="LED")),
+        ("PNP switch", qty(r"BC327"), count("Q", prefix="Q1")),
+        ("NPN driver", qty(r"2N3904"), count("Q", prefix="Q2")),
+        ("keypad", qty(r"4×4 membrane"), count(kind="KEYPAD")),
+        ("breadboards", qty(r"Good-quality 830-tie"), len(set(b for (b, _, _) in L.pin_hole.values()))),
     ]

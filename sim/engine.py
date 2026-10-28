@@ -66,7 +66,7 @@ class Violation:
 class Net:
     __slots__ = ("name", "value", "drivers", "loads", "pullup_ohms", "cap_pf",
                  "version", "last_change", "watchers", "sim", "overlap_since",
-                 "overlap_set", "supply", "edges")
+                 "overlap_set", "supply", "edges", "pull_value")
 
     def __init__(self, sim, name):
         self.sim = sim
@@ -74,7 +74,8 @@ class Net:
         self.value = Z
         self.drivers = {}          # driver id -> value, enabled drivers only
         self.loads = []            # parts evaluated on change
-        self.pullup_ohms = None
+        self.pullup_ohms = None    # pull resistor (to VDD, or to GND if pull_value == 0)
+        self.pull_value = 1
         self.cap_pf = None
         self.version = 0
         self.last_change = -1e18
@@ -124,18 +125,23 @@ class Net:
             if self.pullup_ohms is None:
                 self._set(t, Z)
                 return
-            if self.value == 1:
+            pv = self.pull_value
+            if self.value == pv:
                 return
-            # released from 0 / X / Z: RC rise toward VDD from (worst case) 0 V
+            # released from the opposite level / X / Z: RC swing toward the pull
+            # level, valid until it crosses the near threshold, then
+            # indeterminate until it crosses the far one
             tau = self.tau_ns
             t_low = tau * math.log(VDD / (VDD - VIL_WORST))
             t_high = tau * math.log(VDD / (VDD - VIH_WORST))
+            if pv == 0:                          # falling: leave VIH first, reach VIL last
+                t_low, t_high = tau * math.log(VDD / VIH_WORST), tau * math.log(VDD / VIL_WORST)
             v = self.version
-            if self.value == 0:
+            if self.value == 1 - pv:
                 sim.schedule(t + t_low, self._pull, v, Z)
             else:
                 self._set(t, Z)
-            sim.schedule(t + t_high, self._pull, v, 1)
+            sim.schedule(t + t_high, self._pull, v, pv)
             return
         self.version += 1
         vals = set(d.values())

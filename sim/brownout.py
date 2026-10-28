@@ -25,7 +25,7 @@ def dip_during_write(offset_ns, seed=1, low_ns=20_000, scenario="ram", nth_write
     t_first_done = b.sim.now
     # second session up to the nth write strobe of the reboot
     b.cold_clear()
-    b.h.set_switch_byte(~{"ram": 1, "msg_frozen": 4}[scenario] & 0xFF)
+    b.set_scenario(scenario)
     start = b.sim.now
     target = []
     mixed = []          # WE strobes of writes whose data has both 0 and 1 bits

@@ -71,10 +71,10 @@ class TestLayout(unittest.TestCase):
 class TestPhysicalSimulation(unittest.TestCase):
     def test_diagnostic_rom(self):
         b, _ = phys_bench(image=specdoc.diagnostic_rom(), symbols={"loop": 0x800A}, seed=3)
-        b.h.set_switch_byte(0x5A)
+        want = b.set_columns(0xA)
         b.run_to("loop")
         b.run_cycles(60)
-        self.assertEqual(b.ram.mem[0x200], 0x5A)
+        self.assertEqual(b.ram.mem[0x200], want)
         self.assertEqual(b.violations(), [])
 
     def test_mirrors_unmapped_reads(self):
@@ -112,7 +112,7 @@ class TestBuildMistakes(unittest.TestCase):
     def diag(self, fault):
         b, con = phys_bench(faults=[fault], image=specdoc.diagnostic_rom(),
                             symbols={"loop": 0x800A}, seed=3)
-        b.h.set_switch_byte(0x5A)
+        b.set_columns(0xA)
         try:
             b.run_to("loop", max_cycles=300)
             b.run_cycles(60)

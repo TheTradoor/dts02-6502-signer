@@ -638,7 +638,7 @@ class SC56Digit(Part):
     kind = "SC56-11"
     SEG_PIN = {"a": 7, "b": 6, "c": 4, "d": 2, "e": 1, "f": 9, "g": 10, "dp": 5}
     roles = {p: "in" for p in SEG_PIN.values()}
-    roles.update({3: "gnd", 8: "gnd"})
+    roles.update({3: "in", 8: "in"})          # common cathode, sunk by a MAX7219 DIG output
 
     def lit(self):
         """Return 8-bit mask (bit0=a .. bit7=dp) of lit segments; None if unknown."""
@@ -731,3 +731,197 @@ class ResetRC(Part):
     def _charged(self, t, v):
         if v == self.version:
             self.out(3, 1, t, 0)
+
+
+# ---------------------------------------------------------------------------
+# rev 0.5 display and keypad (spec Section 8)
+# ---------------------------------------------------------------------------
+
+# MAX7219 / AS1107 timing (ns), datasheet minimums
+MAX7219_T = dict(tDS=25, tDH=0, tCH=50, tCL=50, tCSW=50, tDO=25)
+MAX7219_SEG_PINS = {"dp": 22, "a": 14, "b": 16, "c": 20, "d": 23, "e": 21, "f": 15, "g": 17}
+MAX7219_DIG_PINS = [2, 11, 6, 7, 3, 10, 5, 8]          # DIG0..DIG7
+
+
+class MAX7219(Part):
+    """Serial 8-digit LED driver (MAX7219, AS1107, HT7219).
+
+    Modelled at the register level: the display contents are read from the
+    digit registers rather than by simulating the 800 Hz multiplex scan.
+    Power is pin 19 (V+, switched rail DISP_V).  On power-up every control
+    register resets and the part enters shutdown; digit RAM is undefined
+    (None) until written, so firmware that shows a digit it never wrote is
+    caught."""
+    kind = "MAX7219"
+    roles = {1: "in", 12: "in", 13: "in", 19: "pwr_sw", 18: "analog", 4: "gnd", 9: "gnd", 24: "out"}
+    roles.update({p: "out" for p in MAX7219_SEG_PINS.values()})
+    roles.update({p: "out" for p in MAX7219_DIG_PINS})
+
+    def __init__(self, sim, name, pins):
+        super().__init__(sim, name, pins)
+        self.powered = False
+        self._power_reset()
+        self.prev_clk = X
+        self.prev_load = X
+        self.t_clk_edge = -1e18
+        self.t_load_edge = -1e18
+        self.latches = 0
+        if 19 in self.pins:
+            self.pins[19].loads.append(self)          # V+ (switched rail) changes power state
+
+    def _power_reset(self):
+        self.sr = 0
+        self.out_bit = 0
+        self.digits = [None] * 8
+        self.decode = 0
+        self.intensity = 0
+        self.scan_limit = 0
+        self.shutdown = True
+        self.test = False
+
+    def evaluate(self, t):
+        pwr = self.inp(19)
+        if pwr != 1:
+            if self.powered:
+                self.powered = False
+            self._power_reset()
+            self.out(24, 0, t, 0)
+            self.prev_clk, self.prev_load = self.inp(13), self.inp(12)
+            return
+        if not self.powered:
+            self.powered = True
+            self._power_reset()
+        clk, load = self.inp(13), self.inp(12)
+        T = MAX7219_T
+        if clk != self.prev_clk and clk in (0, 1) and self.prev_clk in (0, 1):
+            width = t - self.t_clk_edge
+            if width < (T["tCH"] if clk == 0 else T["tCL"]):
+                self.sim.violation(t, "pulse-width", f"{self.name}.CLK", f"{width:.0f} ns")
+            self.t_clk_edge = t
+        if self.prev_clk == 0 and clk == 1:
+            self.sim.check_sample(t, [self.pins[1]], T["tDS"], T["tDH"], f"{self.name}.DIN")
+            din = self.inp(1)
+            self.sr = ((self.sr << 1) | (din if din in (0, 1) else 0)) & 0xFFFF
+            if din not in (0, 1):
+                self.sim.violation(t, "invalid-sample", f"{self.name}.DIN", "unknown data")
+        elif self.prev_clk == 1 and clk == 0:
+            # DOUT presents the register MSB after each falling edge: data entering
+            # DIN appears at DOUT 16.5 clocks later (datasheet)
+            self.out(24, (self.sr >> 15) & 1, t, T["tDO"])
+        if load != self.prev_load and load in (0, 1) and self.prev_load in (0, 1):
+            width = t - self.t_load_edge
+            if width < T["tCSW"] and load == 1:
+                self.sim.violation(t, "pulse-width", f"{self.name}.LOAD", f"{width:.0f} ns")
+            self.t_load_edge = t
+        if self.prev_load == 0 and load == 1:
+            self._latch()
+        self.prev_clk, self.prev_load = clk, load
+
+    def _latch(self):
+        self.latches += 1
+        addr, data = (self.sr >> 8) & 0x0F, self.sr & 0xFF
+        if 1 <= addr <= 8:
+            self.digits[addr - 1] = data
+        elif addr == 0x9:
+            self.decode = data
+        elif addr == 0xA:
+            self.intensity = data & 0x0F
+        elif addr == 0xB:
+            self.scan_limit = data & 0x07
+        elif addr == 0xC:
+            self.shutdown = (data & 1) == 0
+        elif addr == 0xF:
+            self.test = (data & 1) == 1
+
+    def lit(self):
+        """8 segment masks (bit0=a .. bit6=g, bit7=dp) for DIG0..7; 0 = dark,
+        None = would show undefined RAM contents."""
+        if not self.powered or self.shutdown:
+            return [0] * 8
+        if self.test:
+            return [0xFF] * 8
+        out = []
+        for i in range(8):
+            if i > self.scan_limit:
+                out.append(0)
+                continue
+            d = self.digits[i]
+            if d is None or self.decode & (1 << i):
+                out.append(None)        # undefined RAM, or Code-B decode (not used by this design)
+                continue
+            # register bits D7=DP, D6=A, D5=B, D4=C, D3=D, D2=E, D1=F, D0=G
+            m = (d >> 7) << 7
+            for seg in range(7):                      # a..g
+                if d & (1 << (6 - seg)):
+                    m |= 1 << seg
+            out.append(m)
+        return out
+
+
+class DisplayPowerSwitch(Part):
+    """Q2 (NPN) + Q1 (PNP) high-side switch: DISP_V follows DISPLAY_ON.
+    Turn-on is a few microseconds; turn-off is the decay of the V+ bulk
+    capacitor through the MAX7219 load (tens of microseconds)."""
+    kind = "DISPSW"
+    roles = {1: "in", 2: "out"}
+
+    def evaluate(self, t):
+        v = self.inp(1)
+        if v == 1:
+            self.out(2, 1, t, 3_000)
+        elif v == 0:
+            self.out(2, 0, t, 50_000)
+        else:
+            self.out(2, X, t, 0)
+
+
+class RowDiode(Part):
+    """Schottky diode, cathode on the U16 row-drive output (pin 1), anode on
+    the keypad row (pin 2): the row is pulled low only while its drive is low."""
+    kind = "DIODE"
+    roles = {1: "in", 2: "tri"}
+
+    def evaluate(self, t):
+        v = self.inp(1)
+        self.out(2, 0 if v == 0 else (Z if v == 1 else X), t, 1)
+
+
+class Keypad4x4(Part):
+    """Passive 4x4 membrane matrix: pins 1-4 rows R1..R4, pins 5-8 columns
+    C1..C4.  Pressed keys short their row and column; connectivity through
+    several pressed keys is followed, so ghost keys appear exactly as on the
+    real matrix.  A column is driven low when its connected group contains a
+    row that is being pulled low."""
+    kind = "KEYPAD"
+    roles = {1: "in", 2: "in", 3: "in", 4: "in", 5: "tri", 6: "tri", 7: "tri", 8: "tri"}
+    LABELS = [["1", "2", "3", "A"], ["4", "5", "6", "B"], ["7", "8", "9", "C"], ["*", "0", "#", "D"]]
+
+    def __init__(self, sim, name, pins):
+        super().__init__(sim, name, pins)
+        self.pressed = set()                 # {(row, col)}
+        for p in range(1, 5):
+            if p in self.pins:
+                self.pins[p].loads.append(self) if self not in self.pins[p].loads else None
+
+    def set_pressed(self, keys, t=None):
+        self.pressed = set(keys)
+        self.evaluate(self.sim.now if t is None else t)
+
+    def evaluate(self, t):
+        rows_low = {r for r in range(4) if self.inp(1 + r) == 0}
+        # union-find over rows (0..3) and columns (4..7) joined by pressed keys
+        parent = list(range(8))
+
+        def find(x):
+            while parent[x] != x:
+                parent[x] = parent[parent[x]]
+                x = parent[x]
+            return x
+        for r, c in self.pressed:
+            parent[find(r)] = find(4 + c)
+        low_groups = {find(r) for r in rows_low}
+        for c in range(4):
+            g = find(4 + c)
+            joined = any(find(r) == g for r in range(4))
+            v = 0 if (joined and g in low_groups) else Z
+            self.out(5 + c, v, t, 1)

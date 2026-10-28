@@ -1,8 +1,8 @@
 """Test firmware for the DTS-02 simulation.
 
 boot_rom() implements the spec's Section 10.1 boot/reset state machine and,
-on a fresh start, runs a test scenario selected by the DIP switches (closed
-switch = 1 after the spec's XOR $FF).  This is test firmware for the
+on a fresh start, runs the test scenario whose number the harness wrote to
+the RAM mailbox $3F80.  This is test firmware for the
 hardware model, not signing firmware.
 """
 
@@ -23,7 +23,7 @@ RFC_SIG = bytes.fromhex(
 
 SCENARIOS = {
     "idle": 0, "ram": 1, "msg_fault": 2, "res_fault": 3, "msg_frozen": 4,
-    "record_ok": 5, "record_bad": 6, "mirrors": 7, "font": 8,
+    "record_ok": 5, "record_bad": 6, "mirrors": 7, "font": 8, "keypad": 9,
 }
 
 
@@ -65,6 +65,19 @@ STATUS = $7F01
 SWITCH = $7F00
 SETMSG = $7F03
 SETRES = $7F04
+MAILBOX = $3F80         ; test harness writes the scenario number here
+GSH    = $20            ; GPIO shadow: DISPLAY_ENABLE + idle keypad rows
+MXA    = $21            ; MAX7219 word being sent (address, data)
+MXD    = $22
+MXA2   = $24            ; second chip's word (U22 receives first)
+MXD2   = $25
+CVT    = $26
+KCNT   = $27
+KRES   = $28
+KLAST  = $29
+KSTAB  = $2A
+KBUF   = $30            ; 16 entered nibbles (zero page $30-$3F)
+GPIO_IDLE = $DC         ; D6 DISPLAY_ENABLE, D7/D4/D3/D2 keypad rows released
 ERRS   = $0F            ; zero-page error counter
 
         .org $8000
@@ -197,8 +210,7 @@ fz1:    STA ($0C),Y
         CPX #ZERO_END
         BNE fz1
         JSR display_init
-        LDA SWITCH
-        EOR #$FF
+        LDA MAILBOX
         STA $07
         CMP #1
         BNE d2
@@ -224,7 +236,10 @@ d7:     CMP #7
 d8:     CMP #8
         BNE d9
         JMP sc_font
-d9:     JMP done
+d9:     CMP #9
+        BNE d10
+        JMP sc_keypad
+d10:    JMP done
 
 done:   JMP done
 
@@ -382,28 +397,92 @@ sf:     LDA font,X
         BNE sf
         JMP show_page
 
-; ---------------- display driver (Section 8 protocol) ---------------------
+; ---------------- display driver: two MAX7219 in a chain (Section 8) -------
 display_init:
-        LDY #0
-di_b:   LDA clkmask,Y
-        STA $01
-        LDX #32
-di_bit: LDA #0
-        STA GPIO
-        LDA $0001
-        STA GPIO
-        LDA #0
-        STA GPIO
+        LDA #GPIO_IDLE
+        STA GSH
+        STA GPIO                ; switch the display rail on
+        LDX #0
+di_w:   NOP
         DEX
-        BNE di_bit
-        INY
-        CPY #4
-        BNE di_b
-        LDA #$20
-        STA GPIO
-        LDA #0
+        BNE di_w                ; let DISP_V settle
+        LDA #$0C
+        LDX #$00
+        JSR mx_both             ; shutdown (also the power-up state)
+        LDA #$0F
+        LDX #$00
+        JSR mx_both             ; display test off
+        LDA #$09
+        LDX #$00
+        JSR mx_both             ; no Code-B decode: raw segments
+        LDA #$0B
+        LDX #$07
+        JSR mx_both             ; scan all 8 digits
+        LDA #$0A
+        LDX #$08
+        JSR mx_both             ; intensity 9/32
+        LDA #1
+        STA $0E
+di_d:   LDA $0E
+        LDX #$00
+        JSR mx_both             ; blank every digit register before display-on
+        INC $0E
+        LDA $0E
+        CMP #9
+        BNE di_d
+        LDA #$0C
+        LDX #$01
+        JMP mx_both             ; normal operation
+
+mx_both:                        ; same command (A = register, X = data) to both chips
+        STA MXA
+        STA MXA2
+        STX MXD
+        STX MXD2
+mx_pair:                        ; U22 word (MXA2/MXD2) then U21 word (MXA/MXD), then LOAD
+        LDA MXA2
+        JSR mx_byte
+        LDA MXD2
+        JSR mx_byte
+        LDA MXA
+        JSR mx_byte
+        LDA MXD
+        JSR mx_byte
+        LDA GSH
+        ORA #$20
+        STA GPIO                ; LOAD rising edge latches both chips
+        LDA GSH
         STA GPIO
         RTS
+
+mx_byte:                        ; shift A out MSB first on DIN (D0), clock on D1
+        STA CVT
+        LDY #8
+mb:     LDA #0
+        ASL CVT
+        ROL A
+        ORA GSH
+        STA GPIO                ; DIN set, CLK low
+        ORA #$02
+        STA GPIO                ; CLK rising: MAX7219 samples DIN
+        AND #$FD
+        STA GPIO
+        DEY
+        BNE mb
+        RTS
+
+conv:                           ; A: bit0=a..bit6=g, bit7=dp -> MAX7219 D6=a..D0=g, D7=dp
+        STA CVT
+        LDA #0
+        LDY #7
+cv:     LSR CVT
+        ROL A
+        DEY
+        BNE cv
+        LSR CVT
+        BCC cv2
+        ORA #$80
+cv2:    RTS
 
 show_code:                      ; 'C' + glyph in A on digits 0,1; rest blank
         STA $11
@@ -416,55 +495,126 @@ scl:    STA $0010,X
         CPX #16
         BNE scl
 show_page:                      ; display masks $10..$1F, digit 0 leftmost
-        LDA #0
+        LDA #$0C
+        LDX #$00
+        JSR mx_both             ; blank while the page changes
+        LDA #1
+        STA $0E
+sp_d:   LDX $0E
+        LDA $000F,X             ; digit (n-1) -> U21 register n
+        JSR conv
+        STA MXD
+        LDX $0E
+        LDA $0017,X             ; digit (n+7) -> U22 register n
+        JSR conv
+        STA MXD2
+        LDA $0E
+        STA MXA
+        STA MXA2
+        JSR mx_pair
+        INC $0E
+        LDA $0E
+        CMP #9
+        BNE sp_d
+        LDA #$0C
+        LDX #$01
+        JMP mx_both
+
+; ---------------- keypad scan: A = key value 0-F, $FF none, $FE several -----
+kscan:  STZ KCNT
+        LDA #$FF
+        STA KRES
+        LDX #0
+ks_r:   LDA GSH
+        AND rowclr,X            ; pull this row's drive low
         STA GPIO
+        NOP
+        LDA SWITCH              ; columns, active low, in D0-D3
+        EOR #$FF
+        AND #$0F
+        STA CVT
         LDY #0
-sp_bank: LDA clkmask,Y
-        STA $01
+ks_c:   LSR CVT
+        BCC ks_n
+        INC KCNT
+        TXA
+        ASL A
+        ASL A
+        STA $0E
         TYA
-        ASL A
-        ASL A
         CLC
-        ADC #3
-        STA $02
-        LDA #4
-        STA $03
-sp_dig: LDX $02
-        LDA $0010,X
-        STA $04
-        LDA #8
-        STA $05
-sp_bit: LDA $0004
-        ASL A
-        STA $04
-        LDA #0
-        ROL A
-        STA $06
-        STA GPIO                ; DATA, clocks low
-        ORA $0001
-        STA GPIO                ; raise this bank's clock
-        LDA $0006
-        STA GPIO                ; lower it, DATA unchanged
-        DEC $05
-        BNE sp_bit
-        DEC $02
-        DEC $03
-        BNE sp_dig
-        INY
+        ADC $0E
+        TAY
+        LDA keyval,Y
+        STA KRES
+        TYA
+        AND #3
+        TAY
+ks_n:   INY
         CPY #4
-        BNE sp_bank
-        LDA #$20
-        STA GPIO                ; LATCH
-        LDA #0
-        STA GPIO
-        LDA #$40
-        STA GPIO                ; DISPLAY_ENABLE
+        BNE ks_c
+        INX
+        CPX #4
+        BNE ks_r
+        LDA GSH
+        STA GPIO                ; release the rows
+        LDA KCNT
+        BEQ ks_none
+        CMP #1
+        BNE ks_many
+        LDA KRES
+        RTS
+ks_none: LDA #$FF
+        RTS
+ks_many: LDA #$FE
         RTS
 
-clkmask: .byte $02, $04, $08, $10
+; ---------------- scenario 9: keypad echo -------------------------------------
+sc_keypad:
+        LDX #15
+        LDA #16                 ; blank glyph
+kz:     STA KBUF,X
+        DEX
+        BPL kz
+        LDA #$FF
+        STA KLAST
+        STZ KSTAB
+kp_loop: JSR kscan
+        CMP KLAST
+        BEQ kp_same
+        STA KLAST
+        STZ KSTAB
+        JMP kp_loop
+kp_same: INC KSTAB
+        LDA KSTAB
+        CMP #3                  ; accept a key after 3 identical scans, once
+        BNE kp_loop
+        LDA KLAST
+        CMP #16
+        BCS kp_loop             ; none or several keys
+        LDX #0
+ksh:    LDA KBUF+1,X
+        STA KBUF,X
+        INX
+        CPX #15
+        BNE ksh
+        LDA KLAST
+        STA KBUF+15
+        LDX #15
+kr:     LDY KBUF,X
+        LDA font,Y
+        STA $10,X
+        DEX
+        BPL kr
+        JSR show_page
+kp_idle: JMP kp_loop
+
+rowclr: .byte $FB, $F7, $EF, $7F        ; clear D2, D3, D4, D7
+keyval: .byte 1, 2, 3, $A, 4, 5, 6, $B, 7, 8, 9, $C, $E, 0, $F, $D
 magic:  .byte 'D', 'T', 'S', '0', '2', 'O', 'U', 'T'
 font:
 {font}
+        .byte $00               ; entry 16: blank
 ramtab:
 {ramtab}
 RAMTAB_LEN = {ramtab_len}

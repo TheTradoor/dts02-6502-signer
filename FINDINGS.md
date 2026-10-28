@@ -2,7 +2,7 @@
 
 These results come from the simulation and checks in `sim/` (see `README.md`), run against revision 0.3 of `spec.md`. Each finding names the test that reproduces it.
 
-**Status:** revision 0.4 of `spec.md` incorporates F1, F2, F3, F4, F5, F6, F7, F9 and F10. F11 and F12 came from the later firmware and brownout work. F11 is partly addressed by firmware optimization; the rest is an open decision. The simulator now models rev 0.4 by default; pass `--rev03` (or `mutations=["rev03"]`) to reproduce the rev 0.3 behavior described here. F8 is informational.
+**Status:** revision 0.4 of `spec.md` incorporates F1, F2, F3, F4, F5, F6, F7, F9 and F10; revision 0.5 changes the display and input hardware (see the revision 0.5 section below). F11 and F12 came from the later firmware and brownout work. F11 is partly addressed by firmware optimization; the rest is an open decision. The simulator now models rev 0.4 by default; pass `--rev03` (or `mutations=["rev03"]`) to reproduce the rev 0.3 behavior described here. F8 is informational.
 
 ## Summary
 
@@ -156,6 +156,20 @@ The spec ships no signing firmware, so `sim/signer_fw.py` implements Sections 10
 - **CPU validation:** both CPU models (Python bus model and C emulator) pass Klaus Dormann's 6502 functional test and 65C02 extended-opcode test with identical cycle counts.
 
 Not covered: the review UI (field pages, NEXT/BACK/APPROVE), the Solana/Squads policy parser of profiles 1–2, and seed entry. In the simulation the seed is placed at $3F00 to stand in for the undefined local entry mechanism.
+
+## Revision 0.5: MAX7219 display and keypad
+
+Revision 0.5 replaces the sixteen-74HC595 display with two daisy-chained MAX7219 drivers (second sources AS1107, HT7219) and the DIP switch with a 4×4 membrane keypad (spec Section 8). The simulation models both at pin level and checks them on the gate-level board:
+
+- **Display path.** GPIO latch → U19 buffer → 1 kΩ series resistors with 10 kΩ pull-downs → U21 → U22 (DOUT daisy chain) → the SEG/DIG buses → SC56-11 pins. The panel is read through the netlist, so a wrong pin in any table shows up as a wrong glyph. The font page renders "0123456789AbCdEF" with no setup or pulse-width violations on the MAX7219 serial timing.
+- **The model catches real firmware mistakes.** It reproduces the MAX7219's power-up state: shutdown, control registers reset, digit RAM undefined. Showing a digit that was never written is flagged.
+- **Hardware blanking.** The MAX7219 has no output enable, so DISPLAY_ON = CPU_RESET_N & DISPLAY_ENABLE & FAULT_N switches the display supply through Q1/Q2. Tests show the supply off and the panel blank before enable, after CPU RESET and after FAULT, even when firmware sets DISPLAY_ENABLE (`TestDisplay`, `test_message_lock_blocks_and_faults`).
+- **Keypad.** The matrix model follows connectivity through pressed keys, so ghosting appears exactly as on a real membrane. Typed keys reach RAM and the display (`* # → E F`). Two simultaneous keys and the three-key L-shape that ghosts a fourth are rejected by the scanning firmware (`TestKeypad`).
+- **Electrical levels.** Schottky row diodes leave the column low at about 0.3 V against the HCT 0.8 V limit; a 1N4148 would sit at about 0.65 V. The 1 kΩ/10 kΩ divider gives about 4.55 V at the MAX7219 inputs, above its 3.5 V input-high level and within V+ + 0.3 V behind the supply switch. The display peak is about 210 mA, comparable to revision 0.4.
+- **Physical build.** The regenerated hole-level wiring list has 28 DIPs and 439 jumpers, against 43 DIPs and 669 jumpers in revision 0.4, on seven breadboards. It has no shorts or opens and passes the harness rules. All 16 countable parts-list lines, including transistors, diodes and RSET resistors, match the layout.
+- **Cross-check.** The C emulator's own MAX7219 model renders the same page as the gate-level board.
+
+UI note from the keypad test: a full 16-digit redraw takes about 10,000 CPU cycles (about 0.2 s at 50 kHz). Keys pressed during a redraw are missed, so the entry UI should update only the changed digits (spec Section 8).
 
 ## Breadboard layout verification
 

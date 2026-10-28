@@ -13,17 +13,21 @@ import random
 
 from .cpu65c02 import W65C02S
 from .engine import Simulator
-from .parts import (HC595, HCT138, HCT157, HCT244, HCT273, HCT541, HCT573,
-                    HCT74, And4x2, EPROM27256, Inv6, LoadOnly, Nand3x3,
-                    Nand4x2, Nand8, Oscillator, Or4x2, ResetRC, SC56Digit,
-                    SeriesR, Source, SRAM62256)
+from .parts import (MAX7219, MAX7219_DIG_PINS, MAX7219_SEG_PINS, HCT138, HCT157,
+                    HCT244, HCT273, HCT541, HCT573, HCT74, And4x2, DisplayPowerSwitch,
+                    EPROM27256, Inv6, Keypad4x4, LoadOnly, Nand3x3, Nand4x2, Nand8,
+                    Oscillator, Or4x2, ResetRC, RowDiode, SC56Digit, SeriesR, Source,
+                    SRAM62256)
 
 VCC, GND = "VCC", "GND"
 
 # Pull-ups: net -> (ohms, budgeted pF).  Section 6.5 / 8 / 6.1 / 5.2
 P_D = [f"P_D{i}" for i in range(8)]
 C_D = [f"C_D{i}" for i in range(8)]
-SW = [f"SW{i}" for i in range(8)]
+# U14 inputs: keypad columns (bits 0-3) and four pulled-up spares (bits 4-7)
+SW = [f"KCOL{i + 1}" for i in range(4)] + [f"KSPARE{i}" for i in range(4, 8)]
+KROWS = [f"KROW{r + 1}" for r in range(4)]
+MX = ["MX_DIN", "MX_CLK", "MX_LOAD"]
 KEYS = ["ENTER", "NEXT", "BACK", "APPROVE", "ABORT"]
 
 DEFAULT_CAP = {"P_D": 60.0, "C_D": 45.0}
@@ -55,8 +59,9 @@ def build(rom_image, master_hz=380e3, seed=1, bb9=True, reset_delay_ns=None,
         n.cap_pf = pf
 
     if physical is not None:
-        for n, ohms, pf in physical[1]:
+        for n, ohms, pf, level in physical[1]:
             pullup(n, ohms, pf)
+            sim.net(n).pull_value = level
     else:
         for n in P_D:
             pullup(n, 4.7e3 if "weak_pd_pullups" not in mut else 47e3, cap["P_D"])
@@ -64,6 +69,9 @@ def build(rom_image, master_hz=380e3, seed=1, bb9=True, reset_delay_ns=None,
             pullup(n, 10e3, cap["C_D"])
         for n in SW:
             pullup(n, 10e3)
+        for n in MX:                               # 10k pull-downs: 0 V into an unpowered MAX7219
+            pullup(n, 10e3)
+            sim.net(n).pull_value = 0
         for n in ["CPU_RDY", "CPU_IRQB", "CPU_NMIB", "CPU_BE", "CPU_SOB"]:
             pullup(n, 10e3)
         pullup("POR_RAW_N", 4.7e3)
@@ -128,7 +136,8 @@ def build(rom_image, master_hz=380e3, seed=1, bb9=True, reset_delay_ns=None,
 
     # ---- U8 INV, Section 7.1 -------------------------------------------
     Inv6(sim, "U8", {1: A[15], 2: "nA15", 3: "RWB", 4: "nRWB", 5: "RAM_CE_N",
-                     6: "RAM_SELECT", 9: GND, 11: GND, 13: GND, 14: VCC, 7: GND},
+                     6: "RAM_SELECT", 9: "DISPLAY_OE_N", 8: "DISPLAY_ON",
+                     11: GND, 13: GND, 14: VCC, 7: GND},
          "HCT04")
 
     # ---- U9 PAGE ---------------------------------------------------------
@@ -181,12 +190,14 @@ def build(rom_image, master_hz=380e3, seed=1, bb9=True, reset_delay_ns=None,
     HCT541(sim, "U14", u14)
     HCT541(sim, "U15", u15)
 
-    # ---- U16 GPIO latch ----------------------------------------------------
-    HCT273(sim, "U16", {1: "CPU_RESET_N", 2: "DATA", 3: P_D[0], 4: P_D[1],
-                        5: "CLK0", 6: "CLK1", 7: P_D[2], 8: P_D[3], 9: "CLK2",
-                        10: GND, 11: "WR_GPIO_N", 12: "CLK3", 13: P_D[4],
-                        14: P_D[5], 15: "LATCH", 16: "DISPLAY_ENABLE",
-                        17: P_D[6], 18: P_D[7], 19: None, 20: VCC})
+    # ---- U16 GPIO latch, Section 8 ------------------------------------------
+    # D0 DISP_DIN, D1 DISP_CLK, D2 KROW1_DRV, D3 KROW2_DRV, D4 KROW3_DRV,
+    # D5 DISP_LOAD, D6 DISPLAY_ENABLE, D7 KROW4_DRV (rows active low)
+    HCT273(sim, "U16", {1: "CPU_RESET_N", 2: "DISP_DIN", 3: P_D[0], 4: P_D[1],
+                        5: "DISP_CLK", 6: "KROW1_DRV", 7: P_D[2], 8: P_D[3], 9: "KROW2_DRV",
+                        10: GND, 11: "WR_GPIO_N", 12: "KROW3_DRV", 13: P_D[4],
+                        14: P_D[5], 15: "DISP_LOAD", 16: "DISPLAY_ENABLE",
+                        17: P_D[6], 18: P_D[7], 19: "KROW4_DRV", 20: VCC})
 
     # ---- U17 key conditioning ------------------------------------------
     Inv6(sim, "U17", {1: "KEYIN_ENTER", 2: "KEY_ENTER", 3: "KEYIN_NEXT",
@@ -194,48 +205,47 @@ def build(rom_image, master_hz=380e3, seed=1, bb9=True, reset_delay_ns=None,
                       9: "KEYIN_APPROVE", 8: "KEY_APPROVE", 11: "KEYIN_ABORT",
                       10: "KEY_ABORT", 13: GND, 12: None, 14: VCC, 7: GND}, "HC14")
 
-    # ---- U18 display blanking -------------------------------------------
+    # ---- U18 display enable / read window ----------------------------------
     Nand3x3(sim, "U18", {1: "CPU_RESET_N", 2: "DISPLAY_ENABLE",
                          13: "FAULT_N" if bb9 else VCC, 12: "DISPLAY_OE_N",
                          3: "Q_A" if six else GND, 4: "QC_N" if six else GND,
                          5: "RWB" if six else GND, 6: "RD_WIN_N" if six else None,
                          9: GND, 10: GND, 11: GND, 8: None, 7: GND, 14: VCC}, "HC10")
 
-    # ---- U19 / U20 fanout + 220R ------------------------------------------
-    u19 = {1: GND, 19: GND, 10: GND, 20: VCC}
-    u20 = {1: GND, 19: GND, 10: GND, 20: VCC}
-    for b, (ip, op) in enumerate([(2, 18), (4, 16), (6, 14), (8, 12)]):
-        u19[ip], u19[op] = f"CLK{b}", f"U19_{op}"
-        u20[ip], u20[op] = "DISPLAY_OE_N", f"U20_{op}"
-        SeriesR(sim, f"R_SRCLK{b}", {1: f"U19_{op}", 2: f"B{b}_SRCLK"})
-        SeriesR(sim, f"R_OE{b}", {1: f"U20_{op}", 2: f"B{b}_OE_N"})
-    for b, (ip, op) in enumerate([(11, 9), (13, 7), (15, 5), (17, 3)]):
-        u19[ip], u19[op] = "LATCH", f"U19_{op}"
-        u20[ip], u20[op] = "CPU_RESET_N", f"U20_{op}"
-        SeriesR(sim, f"R_RCLK{b}", {1: f"U19_{op}", 2: f"B{b}_RCLK"})
-        SeriesR(sim, f"R_SRCLR{b}", {1: f"U20_{op}", 2: f"B{b}_SRCLR_N"})
-        SeriesR(sim, f"R_DATA{b}", {1: "DATA", 2: f"B{b}_SER"})
-    HCT244(sim, "U19", u19)
-    HCT244(sim, "U20", u20)
+    # ---- U19 display interface buffer (enabled only while the display is on)
+    HCT244(sim, "U19", {1: "DISPLAY_OE_N", 19: VCC, 10: GND, 20: VCC,
+                        2: "DISP_DIN", 18: "U19_18", 4: "DISP_CLK", 16: "U19_16",
+                        6: "DISP_LOAD", 14: "U19_14", 8: GND, 12: None,
+                        11: GND, 13: GND, 15: GND, 17: GND, 9: None, 7: None, 5: None, 3: None})
+    for net, src in zip(MX, ["U19_18", "U19_16", "U19_14"]):
+        SeriesR(sim, f"R_{net}", {1: src, 2: net})                 # 1k series
 
-    # ---- U21..U36 HC595 + SC56-11 digits ----------------------------------
-    seg_q = {"a": 15, "b": 1, "c": 2, "d": 3, "e": 4, "f": 5, "g": 6, "dp": 7}
+    # ---- display power switch Q1/Q2 -> DISP_V ---------------------------------
+    DisplayPowerSwitch(sim, "QSW", {1: "DISPLAY_ON", 2: "DISP_V"})
+
+    # ---- U21, U22 MAX7219 (daisy chain) + 16 SC56-11 digits ---------------------
+    for chip, (ref, din, dout) in enumerate([("U21", "MX_DIN", "MX_DOUT1"),
+                                              ("U22", "MX_DOUT1", None)]):
+        pins = {1: din, 12: "MX_LOAD", 13: "MX_CLK", 24: dout, 19: "DISP_V",
+                18: f"ISET{chip + 1}", 4: GND, 9: GND}
+        for s_, p_ in MAX7219_SEG_PINS.items():
+            pins[p_] = f"SEG{s_.upper()}_{chip}"
+        for i, p_ in enumerate(MAX7219_DIG_PINS):
+            pins[p_] = f"DIG{i}_{chip}"
+        MAX7219(sim, ref, pins)
     digits = []
-    for b in range(4):
-        for j in range(4):
-            u = 21 + 4 * b + j
-            dig = 4 * b + j
-            ser = f"B{b}_SER" if j == 0 else f"U{u - 1}_QH"
-            pins = {8: GND, 16: VCC, 9: f"U{u}_QH" if j < 3 else None,
-                    10: f"B{b}_SRCLR_N", 11: f"B{b}_SRCLK", 12: f"B{b}_RCLK",
-                    13: f"B{b}_OE_N", 14: ser}
-            dpins = {3: GND, 8: GND}
-            for s, qp in seg_q.items():
-                pins[qp] = f"U{u}_Q{s}"
-                SeriesR(sim, f"R_U{u}_{s}", {1: f"U{u}_Q{s}", 2: f"D{dig}_{s}"})
-                dpins[SC56Digit.SEG_PIN[s]] = f"D{dig}_{s}"
-            HC595(sim, f"U{u}", pins)
-            digits.append(SC56Digit(sim, f"D{dig}", dpins))
+    for dig in range(16):
+        chip, i = divmod(dig, 8)
+        dpins = {3: f"DIG{i}_{chip}", 8: f"DIG{i}_{chip}"}
+        for s_ in ["a", "b", "c", "d", "e", "f", "g", "dp"]:
+            dpins[SC56Digit.SEG_PIN[s_]] = f"SEG{s_.upper()}_{chip}"
+        digits.append(SC56Digit(sim, f"D{dig}", dpins))
+
+    # ---- keypad: Schottky row diodes + 4x4 membrane matrix --------------------
+    for r in range(4):
+        RowDiode(sim, f"DK{r + 1}", {1: f"KROW{r + 1}_DRV", 2: KROWS[r]})
+    Keypad4x4(sim, "KP1", {1: KROWS[0], 2: KROWS[1], 3: KROWS[2], 4: KROWS[3],
+                           5: SW[0], 6: SW[1], 7: SW[2], 8: SW[3]})
 
     # ---- BB9 lock board, Section 9.2 ----------------------------------------
     if bb9:
@@ -297,7 +307,7 @@ class Harness:
         sim.net("RESET_BTN_N").cap_pf = 1.0
         self.reset_rc = ResetRC(sim, "RESET_RC_MODEL", "COLD_CLEAR_N", "RESET_BTN_N",
                                 "RESET_RC", reset_delay_ns)
-        self.switches = [Source(sim, f"DIPSW{i}", f"SW{i}", "Z") for i in range(8)]
+        self.keypad = sim.parts["KP1"]
         self.keys = {k: Source(sim, f"KEYSW_{k}", f"KEYIN_{k}", 1) for k in KEYS}
         self.por_ns = por_ns
         sim.check_from = por_ns / 2      # supplies settled, POR still asserted
@@ -308,10 +318,14 @@ class Harness:
                 sim.schedule(0.0, lambda t, n=n: n.resolve(t))
         self.por.set("Z", por_ns)       # supervisor releases; 4.7k pull-up
 
-    # switches: raw port bit is 0 when the switch is closed
-    def set_switch_byte(self, raw):
-        for i, s in enumerate(self.switches):
-            s.set("Z" if (raw >> i) & 1 else 0)
+    # keypad: labels as printed on a standard 4x4 membrane keypad
+    def press_keypad(self, *labels):
+        keys = set()
+        for lab in labels:
+            for r, row in enumerate(Keypad4x4.LABELS):
+                if lab in row:
+                    keys.add((r, row.index(lab)))
+        self.keypad.set_pressed(keys)
 
     def press_key(self, k, down=True):
         self.keys[k].set(0 if down else 1)
@@ -325,5 +339,34 @@ class Harness:
         self.por.set("Z", t + low_ns)
 
     def display(self):
-        """Return list of 16 segment masks (None for unknown) left to right."""
-        return [d.lit() for d in self.digits]
+        """Segment masks of the 16 panel digits, left to right (None = unknown).
+
+        Follows the netlist: each SC56 digit's cathode net identifies a MAX7219
+        DIG output, and each of its segment pins identifies a SEG output, so a
+        wiring error in the transcribed tables shows up as a wrong glyph."""
+        chips = [p for p in self.sim.parts.values() if p.kind == "MAX7219"]
+        out = []
+        for d in self.digits:
+            cath = d.pins[3].name
+            if d.pins[8].name != cath:
+                out.append(None)
+                continue
+            mask = 0
+            for chip in chips:
+                dig = next((i for i, p in enumerate(MAX7219_DIG_PINS)
+                            if chip.pins.get(p) is not None and chip.pins[p].name == cath), None)
+                if dig is None:
+                    continue
+                m = chip.lit()[dig]
+                if m is None:
+                    mask = None
+                    break
+                segbit = {s_: i for i, s_ in enumerate(["a", "b", "c", "d", "e", "f", "g", "dp"])}
+                for s_, dp in SC56Digit.SEG_PIN.items():
+                    net = d.pins[dp].name
+                    src = next((ss for ss, cp in MAX7219_SEG_PINS.items()
+                                if chip.pins[cp].name == net), None)
+                    if src is not None and m & (1 << segbit[src]):
+                        mask |= 1 << segbit[s_]
+            out.append(mask)
+        return out

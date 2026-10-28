@@ -53,6 +53,7 @@ class TestLocks(unittest.TestCase):
         self.assertEqual(b.cpu.core.a & 0xE0, 0xA0)                 # $7F01 reports it
         self.assertEqual(b.net("DISPLAY_ENABLE"), 1)                # firmware enabled it...
         self.assertEqual(b.display_text(), " " * 16)                # ...hardware blanks it
+        self.assertEqual(b.net("DISP_V"), 0)                        # by removing display power
         self.assertEqual(b.violations(), [])
         # CPU RESET: locks survive, boot enters ROM-only hold, RAM_WE_N stays high
         t = b.sim.now
@@ -79,7 +80,7 @@ class TestLocks(unittest.TestCase):
         b.run_to("done")
         m = b.ram.mem
         self.assertEqual(m[0x282], m[0x283])                        # $7F08 mirrors $7F00
-        self.assertEqual(m[0x283], 0xF8)                            # raw switch byte
+        self.assertEqual(m[0x283], 0xFF)                            # no key pressed
         self.assertEqual([m[0x284], m[0x285], m[0x286]], [0xFF] * 3)
         self.assertEqual(m[0x287] & 0xE0, 0x20)                     # $7F0B set MESSAGE_LOCK
         self.assertEqual(b.violations(), [])
@@ -119,18 +120,57 @@ class TestRecovery(unittest.TestCase):
         b.run_to("done")
         self.assertEqual(status(b), (1, 0, 1))
         b.cold_clear()
-        b.h.set_switch_byte(0xFF)
+        b.set_scenario("idle")
         b.run_to("done")
         self.assertEqual(status(b), (0, 0, 0))
         self.assertEqual(b.violations(), [])
 
 
 class TestDisplay(unittest.TestCase):
-    def test_font_page_through_595_chain_and_pinout(self):
+    def test_font_page_through_max7219_chain_and_pinout(self):
         b = Bench(scenario="font", seed=41)
         b.run_to("done")
         self.assertEqual(b.h.display(), FONT)
         self.assertEqual(b.display_text(), "0123456789AbCdEF")
+        self.assertEqual(b.net("DISP_V"), 1)
+        self.assertEqual(b.violations(), [])
+
+    def test_display_unpowered_until_enabled_and_after_reset(self):
+        b = Bench(scenario="font", seed=42)
+        b.run_cycles(20)
+        self.assertEqual((b.net("DISPLAY_ON"), b.net("DISP_V")), (0, 0))
+        self.assertEqual(b.display_text(), " " * 16)
+        b.run_to("done")
+        self.assertEqual(b.display_text(), "0123456789AbCdEF")
+        b.h.press_reset(True)
+        b.run_cycles(30)
+        self.assertEqual(b.net("DISP_V"), 0)                       # reset removes display power
+        self.assertEqual(b.display_text(), " " * 16)
+        self.assertTrue(all(c.powered is False for c in b.sim.parts.values() if c.kind == "MAX7219"))
+
+
+class TestKeypad(unittest.TestCase):
+    def test_hex_entry_and_multi_key_rejection(self):
+        b = Bench(scenario="keypad", seed=9)
+        b.run_to("kp_loop")
+
+        def tap(*labels):
+            b.h.press_keypad(*labels)
+            b.run_cycles(2500)
+            b.h.press_keypad()
+            b.run_cycles(16000)                 # release + full page redraw
+
+        def buf():
+            return "".join("0123456789ABCDEF "[b.ram.mem[0x30 + i]] for i in range(16))
+        for k in "1A*#0":
+            tap(k)
+        self.assertEqual(buf().strip(), "1AEF0")                    # * = E, # = F
+        self.assertEqual(b.display_text().strip(), "1AEF0")
+        tap("1", "2")                                               # two keys: rejected
+        tap("1", "2", "4")                                          # L-shape ghosts key 5: rejected
+        self.assertEqual(buf().strip(), "1AEF0")
+        tap("D")
+        self.assertEqual(b.display_text().strip(), "1AEF0d")
         self.assertEqual(b.violations(), [])
 
 

@@ -175,3 +175,28 @@ def report():
 
 if __name__ == "__main__":
     print(report())
+
+
+# ---------------------------------------------------------------------------
+# rev 0.5 keypad and display interface (spec Section 8)
+# ---------------------------------------------------------------------------
+
+def keypad_levels(pullup=10e3, vdd=VDD, vol_hct273=0.05):
+    """Column low level when a key connects it through the row diode to a low
+    HCT273 output: pull-up current through the diode."""
+    i = vdd / pullup
+    vf_schottky = 0.25 + 0.02 * (i / 1e-3)      # BAT85 ~0.25 V at 0.5 mA (datasheet curve)
+    vf_silicon = 0.60                           # 1N4148 at ~0.5 mA
+    return dict(i_ma=i * 1e3, schottky_low_v=vol_hct273 + vf_schottky,
+                silicon_low_v=vol_hct273 + vf_silicon, hct_vil=0.8)
+
+
+def display_interface(vcc=VDD, r_series=1e3, r_pd=10e3, iseg_ma=12.0, iq_ma=8.0,
+                      vce_sat=0.3, vbe=0.8, r_base=150.0, vce_sat_q2=0.2):
+    """U19 -> 1k -> MAX7219 input with 10k pull-down; Q1/Q2 supply switch."""
+    v_in = vcc * r_pd / (r_pd + r_series)
+    per_chip = 8 * iseg_ma + iq_ma
+    peak = 2 * per_chip
+    ib = (vcc - vbe - vce_sat_q2) / r_base * 1e3
+    return dict(mx_input_high_v=v_in, disp_v=vcc - vce_sat, display_peak_ma=peak,
+                q1_base_ma=ib, q1_beta_forced=peak / ib)

@@ -24,11 +24,10 @@ COLS_L, COLS_R = "abcde", "fghij"
 RAILS = ("L-", "L+", "R+", "R-")
 SPLIT_ROW = 31
 RAIL_HOLES_PER_HALF = 25
-BOARDS = ["BB1", "BB10", "BB2", "BB3", "BB4", "BB9", "BB5", "BB6", "BB7", "BB8"]
+BOARDS = ["BB1", "BB10", "BB2", "BB3", "BB4", "BB9", "BB5"]
 PANELS = ["LED", "SW", "PWR"]
 GRID = {"BB1": (0, 0), "BB10": (1, 0), "BB2": (2, 0), "BB3": (3, 0), "BB4": (4, 0),
-        "BB9": (5, 0), "BB5": (0, 1), "BB6": (1, 1), "BB7": (2, 1), "BB8": (3, 1),
-        "SW": (4, 1), "PWR": (5, 1)}
+        "BB9": (5, 0), "BB5": (0, 1), "SW": (1, 1), "PWR": (2, 1)}
 PITCH_X, PITCH_Y = 70.0, 180.0           # 55 x 165 mm boards, 15 mm gaps (Section 3.2)
 X_MM = {"L-": 2.5, "L+": 5.0, "a": 10.0, "b": 12.54, "c": 15.08, "d": 17.62, "e": 20.16,
         "f": 27.78, "g": 30.32, "h": 32.86, "i": 35.40, "j": 37.94, "R+": 44.0, "R-": 46.5}
@@ -70,12 +69,11 @@ def hole_xy(h):
 
 
 _LED_X = {}
-for _b in range(4):
-    for _j in range(4):
-        _u, _d = 21 + 4 * _b + _j, 4 * _b + _j
-        for _s in ["a", "b", "c", "d", "e", "f", "g", "dp"]:
-            _LED_X[f"U{_u}_Q{_s}"] = _d
-            _LED_X[f"D{_d}_{_s}"] = _d
+for _c in range(2):                       # MAX7219 group c drives digits 8c..8c+7
+    for _i in range(8):
+        _LED_X[f"DIG{_i}_{_c}"] = 8 * _c + _i
+    for _s in ["A", "B", "C", "D", "E", "F", "G", "DP"]:
+        _LED_X[f"SEG{_s}_{_c}"] = 8 * _c + 3.5
 
 
 def wire_mm(h1, h2):
@@ -171,8 +169,10 @@ class Layout:
         if net in (VCC, GND):
             sd = side or "L"
             return self.rail(b, sd + ("+" if net == VCC else "-"), near_row, owner)
-        for key in ([] if rows is not None else
-                    sorted(self.strips_of(b, net), key=lambda k: abs(k[1] - near_row))):
+        existing = sorted(self.strips_of(b, net), key=lambda k: abs(k[1] - near_row))
+        if rows is not None:              # fixed rows: reuse only this net's strip in those rows
+            existing = [k for k in existing if k[1] in rows]
+        for key in existing:
             if side and key[2] != side:
                 continue
             free = [c for c in (COLS_L if key[2] == "L" else COLS_R) if (b, c, key[1]) not in self.used]
@@ -295,25 +295,46 @@ def generate(grid=None, moves=None, cd_pullups_at_cpu=False, mutations=(),
         L.part("C", f"C_KEY_{k}", "100n", (f"KEYIN_{k}", "SW", {}), (GND, "SW", {}))
         L.part("R", f"R_KEYD_{k}", "1k", (f"KEYIN_{k}", "SW", {}), (f"KEYSW_{k}", "SW", {}))
         L.part("S", f"SW_{k}", "pushbutton", (f"KEYSW_{k}", "SW", {}), (GND, "SW", {}))
-    for i in range(8):
-        L.part("S", f"DIP{i}", "DIP switch pole", (SW[i], "SW", {}), (GND, "SW", {}))
+    for i in range(8):                     # U14 input pull-ups: keypad columns + spares
         h = L.pin_hole[("U14", 2 + i)]
         L.part("R", f"R_SW{i}", "10k", (SW[i], "BB4", dict(near_row=h[2], side="L")),
                (VCC, "BB4", dict(side="L", near_row=h[2])))
-    # 220R fanout branches (BB3) and DATA branches (BB4)
-    for name in sorted(k for k, v in kinds.items() if v == "RSER"):
-        if name.startswith("R_U"):
-            continue
-        n1, n2 = terms[(name, 1)], terms[(name, 2)]
-        b = "BB4" if name.startswith("R_DATA") else "BB3"
-        src = [k for k in L.strip_net if L.strip_net[k] == n1 and k[0] == b]
+    # keypad: row diodes beside U16 (BB4), matrix on the switch panel
+    for r in range(4):
+        drv = terms[(f"DK{r + 1}", 1)]
+        src = [k for k in L.strip_net if L.strip_net[k] == drv and k[0] == "BB4"]
         nr, sd = (src[0][1], src[0][2]) if src else (32, None)
-        L.part("R", name, "220", (n1, b, dict(near_row=nr, side=sd)), (n2, b, dict(near_row=nr, side=sd)),
-               sim_part=name)
-    # segment resistors and digits on the soldered LED panel
-    for name in sorted(k for k, v in kinds.items() if v == "RSER" and k.startswith("R_U")):
-        L.part("R", name, "3.3k", (terms[(name, 1)], "LED", {}), (terms[(name, 2)], "LED", {}),
-               sim_part=name)
+        L.part("D", f"DK{r + 1}", "BAT85 (cathode, anode)", (drv, "BB4", dict(near_row=nr, side=sd)),
+               (terms[(f"DK{r + 1}", 2)], "BB4", dict(near_row=nr, side=sd)), sim_part=f"DK{r + 1}")
+    L.part("KEYPAD", "KP1", "4x4 membrane keypad (R1-R4, C1-C4)",
+           *[(terms[("KP1", p)], "SW", {}) for p in range(1, 9)], sim_part="KP1")
+    # display interface: 1k series resistors after U19 and 10k pull-downs (BB3)
+    for name in sorted(k for k, v in kinds.items() if v == "RSER"):
+        n1, n2 = terms[(name, 1)], terms[(name, 2)]
+        src = [k for k in L.strip_net if L.strip_net[k] == n1 and k[0] == "BB3"]
+        nr, sd = (src[0][1], src[0][2]) if src else (32, None)
+        hs = L.part("R", name, "1k", (n1, "BB3", dict(near_row=nr, side=sd)),
+                    (n2, "BB3", dict(near_row=nr, side=sd)), sim_part=name)
+        land = hs[1][0]
+        L.part("R", f"R_PD_{n2}", "10k", (n2, "BB3", dict(near_row=land[2], side=side_of(land[1]))),
+               (GND, "BB3", dict(side=side_of(land[1]), near_row=land[2])))
+    # display power switch and MAX7219 support parts (BB5)
+    L.part("R", "R_Q2B", "4.7k", ("DISPLAY_ON", "BB5", dict(rows=[34], side="L")), ("Q2B", "BB5", dict(rows=[36], side="L")))
+    L.part("Q", "Q2", "2N3904 (E, B, C)", (GND, "BB5", dict(side="L", near_row=38)),
+           ("Q2B", "BB5", dict(rows=[36], side="L")), ("Q2C", "BB5", dict(rows=[38], side="L")))
+    L.part("R", "R_Q1B", "150", ("Q2C", "BB5", dict(rows=[38], side="L")), ("Q1B", "BB5", dict(rows=[40], side="L")))
+    L.part("R", "R_Q1PU", "4.7k", ("Q1B", "BB5", dict(rows=[40], side="L")), (VCC, "BB5", dict(side="L", near_row=40)))
+    hq = L.part("Q", "Q1", "BC327-25 (E, B, C)", (VCC, "BB5", dict(side="L", near_row=42)),
+                ("Q1B", "BB5", dict(rows=[40], side="L")), ("DISP_V", "BB5", dict(rows=[42], side="L")))
+    L.sim_hole[("QSW", 1)] = L.items[-5]["leads"][0][0]      # R_Q2B lead on DISPLAY_ON
+    L.sim_hole[("QSW", 2)] = hq[2][0]                        # Q1 collector = DISP_V
+    for c, ref in ((1, "U21"), (2, "U22")):
+        iset, vplus = L.pin_hole[(ref, 18)], L.pin_hole[(ref, 19)]     # adjacent rows
+        L.part("R", f"R_SET{c}", "47k 1%", (f"ISET{c}", "BB5", dict(near_row=iset[2], side="R")),
+               ("DISP_V", "BB5", dict(near_row=vplus[2], side="R")))
+        bulk = 16 if c == 1 else 31            # free rows just below each chip
+        L.part("C", f"C_DISPV{c}", "10uF", ("DISP_V", "BB5", dict(rows=[bulk], side="R")),
+               (GND, "BB5", dict(side="R", near_row=bulk)))
     for name in sorted(k for k, v in kinds.items() if v == "SC56-11"):
         pins = [(terms[(name, p)], "LED", {}) for p in range(1, 11)]
         L.part("DIGIT", name, "SC56-11EWA", *pins, sim_part=name)
@@ -349,11 +370,12 @@ def generate(grid=None, moves=None, cd_pullups_at_cpu=False, mutations=(),
     for u, (bb, c1, c2, r1, n) in sorted(ic_rows.items()):
         vcc_pins = [p for p in range(1, n + 1) if terms.get((u, p)) == VCC
                     and L.terminals.get((u, p)) == VCC]
-        vpin = {14: 14, 16: 16, 20: 20, 28: 28, 40: 8}[n]
+        vpin = {14: 14, 16: 16, 20: 20, 24: 19, 28: 28, 40: 8}[n]
         h = L.pin_hole[(u, vpin)]
+        vnet = terms.get((u, vpin)) or VCC                 # MAX7219 V+ is the switched DISP_V
         hc = L.free_in_strip(strip_key(h), f"C_BYP_{u}")
         hg = L.rail(bb, side_of(h[1]) + "-", h[2], f"C_BYP_{u}")
-        L.items.append(dict(kind="C", ref=f"C_BYP_{u}", value="100n", leads=[(hc, VCC), (hg, GND)]))
+        L.items.append(dict(kind="C", ref=f"C_BYP_{u}", value="100n", leads=[(hc, vnet), (hg, GND)]))
     for b in BOARDS:
         hp = L.rail(b, "R+", 1, f"C_BULK_{b}")
         hn = L.rail(b, "R-", 1, f"C_BULK_{b}")
@@ -367,8 +389,6 @@ def generate(grid=None, moves=None, cd_pullups_at_cpu=False, mutations=(),
     L.sim_hole[("RESET_RC_MODEL", 3)] = L.pin_hole[("U5", 9)]
     L.sim_hole[("U42", 1)] = ("PWR", "pad", "POR_RAW_N")
     L.sim_hole[("RESET_BTN", 1)] = ("SW", "pad", "RESET_BTN_N")
-    for i in range(8):
-        L.sim_hole[(f"DIPSW{i}", 1)] = ("SW", "pad", SW[i])
     for k in KEYS:
         L.sim_hole[(f"KEYSW_{k}", 1)] = ("SW", "pad", f"KEYIN_{k}")
 
@@ -408,8 +428,7 @@ def generate(grid=None, moves=None, cd_pullups_at_cpu=False, mutations=(),
             for rail in (rl, rr):
                 L.wire(L.rail(b, rail, SPLIT_ROW, "bridge"), L.rail(b, rail, SPLIT_ROW + 1, "bridge"), net)
             L.wire(L.rail(b, rl, 2, "LR"), L.rail(b, rr, 2, "LR"), net)
-    for panel in ("SW", "LED"):
-        L.wire(("PWR", "pad", GND), (panel, "pad", GND), GND)
+    L.wire(("PWR", "pad", GND), ("SW", "pad", GND), GND)
     L.wire(("PWR", "pad", VCC), ("SW", "pad", VCC), VCC)
     return L
 
@@ -535,12 +554,14 @@ def physical_netlist(L, faults=()):
         (h1, _), (h2, _) = it["leads"]
         a, b = node(h1), node(h2)
         ohms = _ohms(it["value"])
-        if b == VCC and a not in (VCC, GND):
-            pullups.append((a, ohms, max(cap[a], 10.0)))
-        elif a == VCC and b not in (VCC, GND):
-            pullups.append((b, ohms, max(cap[b], 10.0)))
+        for rail, other, level in [(b, a, 1), (a, b, 1), (b, a, 0), (a, b, 0)]:
+            if rail == (VCC if level else GND) and other not in (VCC, GND):
+                if level == 0 and not other.startswith("MX_"):
+                    continue                  # only the display lines have pull-downs
+                pullups.append((other, ohms, max(cap[other], 10.0), level))
+                break
     # behavioural-only pull-up of the reset-button node model
-    pullups.append((remap.get(("RESET_BTN", 1), "RESET_BTN_N"), 100e3, 1.0))
+    pullups.append((remap.get(("RESET_BTN", 1), "RESET_BTN_N"), 100e3, 1.0, 1))
     return remap, pullups, con, cap
 
 
@@ -590,16 +611,20 @@ def harness_checks(L):
     bb9 = crossing["BB9"] - {VCC, GND}
     if bb9 != LOCK_INTERFACE:
         problems.append(f"BB9 harness {sorted(bb9 ^ LOCK_INTERFACE)} differs from Section 3.4")
-    for b in range(4):
-        bb = f"BB{5 + b}"
-        nets = crossing[bb] - {VCC, GND}
-        allowed = {f"B{b}_SER", f"B{b}_SRCLK", f"B{b}_RCLK", f"B{b}_OE_N", f"B{b}_SRCLR_N"}
-        outside = {n for n in nets if n not in allowed and not n.startswith("U")}
-        if outside:
-            problems.append(f"{bb} carries {sorted(outside)}")
-    led_gnd = [w for w in L.wires if w[2] == GND and "LED" in (w[0][0], w[1][0])]
-    if not all({w[0][0], w[1][0]} == {"PWR", "LED"} for w in led_gnd):
-        problems.append("display return current shares a logic-board ground jumper")
+    bb5 = crossing["BB5"] - {VCC, GND}
+    allowed = {"MX_DIN", "MX_CLK", "MX_LOAD", "DISPLAY_ON"}
+    outside = {n for n in bb5 if n not in allowed and not n.startswith(("SEG", "DIG"))}
+    if outside:
+        problems.append(f"BB5 carries {sorted(outside)}")
+    keypad = {n for n in crossing["SW"] if n.startswith(("KROW", "KCOL"))}
+    if keypad != {f"KROW{r}" for r in range(1, 5)} | {f"KCOL{c}" for c in range(1, 5)}:
+        problems.append(f"keypad harness {sorted(keypad)}")
+    led = crossing["LED"] - {VCC, GND}
+    if not all(n.startswith(("SEG", "DIG")) for n in led) or GND in crossing["LED"]:
+        problems.append(f"LED panel harness carries {sorted(led)}")
+    bb5_gnd = [w for w in L.wires if w[2] == GND and "BB5" in (w[0][0], w[1][0]) and w[0][0] != w[1][0]]
+    if not all({w[0][0], w[1][0]} == {"PWR", "BB5"} for w in bb5_gnd):
+        problems.append("display current shares a logic-board ground jumper")
     info["PHI2 U7->U1 segment mm"] = phi2_seg
     info["C_D max line mm"] = max(by_net[n] for n in C_D)
     info["P_D max line mm"] = max(by_net[n] for n in P_D)

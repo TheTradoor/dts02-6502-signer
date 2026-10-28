@@ -20,14 +20,14 @@ def diag_bench(**kw):
 
 
 class TestDiagnosticRom(unittest.TestCase):
-    def test_copies_switches_to_ram(self):
+    def test_copies_keypad_port_to_ram(self):
         b = diag_bench(seed=1)
         b.run_to("loop")
-        for raw in (0xFF, 0x00, 0xA5, 0x5A):
-            b.h.set_switch_byte(raw)
+        for nib in (0xF, 0x0, 0x5, 0xA, 0xE):
+            want = b.set_columns(nib)
             b.run_cycles(60)
-            self.assertEqual(b.ram.mem[0x0200], raw)
-            self.assertEqual(b.cpu.core.a, raw)
+            self.assertEqual(b.ram.mem[0x0200], want)
+            self.assertEqual(b.cpu.core.a, want)
         self.assertEqual(b.violations(), [])
 
     def test_boot_reads_reset_vector_then_8000(self):
@@ -45,9 +45,9 @@ class TestDiagnosticRom(unittest.TestCase):
         for f in CORNERS:
             for seed in range(8):
                 b = diag_bench(seed=100 + seed, master_hz=f)
-                b.h.set_switch_byte((seed * 37) & 0xFF)
+                want = b.set_columns(seed * 5)
                 b.run_cycles(120)
-                if b.violations() or b.ram.mem[0x200] != (seed * 37) & 0xFF:
+                if b.violations() or b.ram.mem[0x200] != want:
                     bad.append((f, seed, b.violations()[:3]))
         self.assertEqual(bad, [])
 
@@ -110,7 +110,7 @@ class TestReadWindowRace(unittest.TestCase):
         corner(b)
         b.sim.driver_watch.update(P_D)
         b.watch_edges("PHI2")
-        b.h.set_switch_byte(0x96)
+        want = b.set_columns(0x6)
         b.run_cycles(150)
         falls = [t for t, o, n in b.edge_log["PHI2"] if o == 1 and n == 0]
         ov = []
@@ -119,6 +119,7 @@ class TestReadWindowRace(unittest.TestCase):
                                                    b.sim.check_from, b.sim.now):
                 if len(o) > 1:
                     ov.append((e - s, s - max(f for f in falls if f <= s), o))
+        b.want = want
         return b, ov
 
     def test_rev03_overlap_at_corner(self):
@@ -126,22 +127,22 @@ class TestReadWindowRace(unittest.TestCase):
         self.assertGreater(len(ov), 0)
         self.assertLess(max(d for d, _, _ in ov), 35)                 # tens of ns
         self.assertTrue(all(10 < after < 60 for _, after, _ in ov))   # just after PHI2 falls
-        self.assertEqual(b.ram.mem[0x200], 0x96)                      # function unaffected
+        self.assertEqual(b.ram.mem[0x200], b.want)                    # function unaffected
 
     def test_six_state_fix_has_no_overlap(self):
         b, ov = self.overlaps([], corners.read_window_six_state_fix)
         self.assertEqual(ov, [])
         self.assertEqual(b.violations(), [])
-        self.assertEqual(b.ram.mem[0x200], 0x96)
+        self.assertEqual(b.ram.mem[0x200], b.want)
 
 
 class TestMargins(unittest.TestCase):
     def test_runs_clean_far_above_clock_ceiling(self):
         b = diag_bench(seed=3, master_hz=8e6, por_ns=2000)
-        b.h.set_switch_byte(0x3C)
+        want = b.set_columns(0xC)
         b.run_cycles(300)
         self.assertEqual(b.violations(), [])
-        self.assertEqual(b.ram.mem[0x200], 0x3C)
+        self.assertEqual(b.ram.mem[0x200], want)
 
     def test_unmapped_reads_tolerate_large_p_d_capacitance(self):
         b = Bench(scenario="mirrors", seed=2, cap_pf={"P_D": 400})
@@ -155,7 +156,7 @@ class TestNegativeControls(unittest.TestCase):
 
     def kinds(self, mutation):
         b = diag_bench(seed=3, mutations=[mutation])
-        b.h.set_switch_byte(0x3C)
+        b.set_columns(0xC)
         b.run_cycles(150)
         return collections.Counter(v.kind for v in b.violations())
 

@@ -1,12 +1,12 @@
 # DTS-02: 65C02 Ed25519 desktop signer, with a simulation of the design
 
-`spec.md` is the DTS-02 revision 0.4 breadboard specification. DTS-02 is a small 65C02 computer meant to be a third, offline Ed25519 signer in a 2-of-3 Squads multisig. It is built from:
+`spec.md` is the DTS-02 revision 0.5 breadboard specification. DTS-02 is a small 65C02 computer meant to be a third, offline Ed25519 signer in a 2-of-3 Squads multisig. It is built from:
 
 - a W65C02S CPU
 - a 32 KiB SRAM and a 32 KiB OTP ROM
 - 74HC/HCT glue logic
-- DIP-switch and pushbutton input
-- sixteen raw seven-segment digits, each driven statically by its own HC595
+- a 4×4 membrane keypad and pushbuttons
+- sixteen raw seven-segment digits driven by two daisy-chained MAX7219 LED drivers
 - hardware message and result bank locks, plus a fault latch
 
 The spec covers the circuit, the breadboard layout, the bring-up plan and the firmware contract. It does not include signing firmware.
@@ -15,7 +15,7 @@ The `sim/` directory is a pure-Python (standard library only) simulation used to
 
 ## What the simulation models
 
-- **Every IC at pin level.** `sim/board.py` copies the spec's DIP pin tables, so a wrong pin number in the spec becomes a wrong connection in the simulator. Models exist for HCT74, HCT541, HCT573, HCT138, HCT157, HCT273, HCT244, HC595, the gate packages, the AS6C62256 SRAM, the AT27C256R EPROM and the SC56-11 digit.
+- **Every IC at pin level.** `sim/board.py` copies the spec's DIP pin tables, so a wrong pin number in the spec becomes a wrong connection in the simulator. Models exist for HCT74, HCT541, HCT573, HCT138, HCT157, HCT273, HCT244, the MAX7219, the gate packages, the AS6C62256 SRAM, the AT27C256R EPROM, the SC56-11 digit, the display power switch, Schottky row diodes and a 4×4 keypad matrix (with ghosting).
 - **Event-driven timing with three-state nets.** Signals take the values 0/1/X/Z. Each part instance gets a fixed propagation delay drawn from datasheet ranges (`sim/timing.py`), so different seeds give a Monte Carlo spread of path skews.
 - **Checks that run automatically:**
   - bus contention (two drivers enabled on one net)
@@ -28,14 +28,14 @@ The `sim/` directory is a pure-Python (standard library only) simulation used to
 - **The CPU.** A cycle-accurate W65C02S bus model, including dummy reads and reset sequence, with tADS, tMDS, tDHW, tDSR and tDHR timing.
 - **Firmware.**
   - The spec's own Section 11.3 diagnostic ROM, taken directly from the Python block in `spec.md`.
-  - A test ROM (`sim/firmware.py`, built by `sim/asm.py`) that implements the spec's Section 10.1 boot and reset state machine and a display driver. On a fresh start it runs the test scenario selected by the DIP switches.
+  - A test ROM (`sim/firmware.py`, built by `sim/asm.py`) that implements the spec's Section 10.1 boot and reset state machine and a display driver. On a fresh start it runs the test scenario the harness writes to the RAM mailbox at $3F80.
 - **Signing firmware.** `sim/signer_fw.py` is an Ed25519 signer in 65C02 assembly that implements spec Sections 10.2–10.4: constant time for secrets, double signature, on-device verification, CRC'd result record and bank locks. It runs on a C emulator (`sim/emu65.c`, built automatically with `cc`) at hundreds of millions of cycles per second, and is checked against Python RFC 8032 and OpenSSL on real Solana transfer messages. Both CPU models pass Klaus Dormann's 6502/65C02 conformance tests with identical cycle counts.
 - **Brownout.** `sim/brownout.py` injects supervisor resets into SRAM write strobes.
 - **Static checks.** An electrical rule check of the netlist, a re-check of the Section 3.3 placement table, BOM quantities against the netlist, a closed-form analog analysis (`sim/analog.py`), and an independent RFC 8032 implementation (`sim/ed25519_ref.py`).
 
 **The breadboard itself.** `sim/layout.py` places every IC per Section 3.3 and every passive part into a specific hole, then routes every net as point-to-point jumpers. The result is `wiring/WIRING.md`, a hole-by-hole build list. The netlist is then rebuilt from physical connectivity alone (5-hole strips, split rails, wires) and checked for shorts, opens, hole budget, harness rules and wire lengths. The simulator can run on this physical netlist (`Bench(physical=...)`), and tests inject typical build mistakes to confirm they're caught.
 
-Some parts are behavioral stand-ins: the RC oscillator, the MCP130 supervisor, the reset RC, the switches and the keys. The simulation is digital. It does not cover ringing, ground bounce, edge rates or supply droop, which still need the oscilloscope checks in Section 11.2 of the spec.
+Some parts are behavioral stand-ins: the RC oscillator, the MCP130 supervisor, the reset RC, the display power switch, the keypad and the pushbuttons. The MAX7219 is modelled at register level (shift register, LOAD latch, power-up state) rather than as its 800 Hz multiplex scan. The simulation is digital. It does not cover ringing, ground bounce, edge rates or supply droop, which still need the oscilloscope checks in Section 11.2 of the spec.
 
 ## Running it
 
@@ -43,18 +43,18 @@ Requires Python 3.9 or later and a C compiler (`cc`) for the fast emulator. `pyt
 
 ```sh
 python3 -m sim check                        # static, document and analog checks (seconds)
-python3 -m sim diag --switch 0xA5           # run the spec's diagnostic ROM on the board model
-python3 -m sim run font                     # boot the test ROM; scenario chosen via the DIP switches
+python3 -m sim diag --columns 0x5          # run the spec's diagnostic ROM; press keypad keys in columns 1 and 3
+python3 -m sim run font                     # boot the test ROM in a scenario (written to the $3F80 mailbox)
 python3 -m sim run msg_fault --reset        # lock, fault, then press CPU RESET
 python3 -m sim handoff                      # Section 11.2 bus-handoff measurements
 python3 -m sim race                         # worst-case read-window corner: rev 0.3 vs rev 0.4
 python3 -m sim wiring                       # regenerate wiring/WIRING.md + wiring.csv (hole-level build list) and check it
 python3 -m sim sign --lamports 5000         # sign a Solana transfer on the emulated 65C02, check vs RFC 8032 + OpenSSL
 ./tools/fetch_klaus.sh                      # optional: fetch Klaus Dormann's CPU test ROMs for tests/test_emu.py
-python3 -m unittest discover -s tests -v    # full test suite: 86 tests, about 7.5 minutes
+python3 -m unittest discover -s tests -v    # full test suite: 89 tests, about 16 minutes
 ```
 
-Scenarios for `run`: `idle`, `ram`, `msg_fault`, `res_fault`, `msg_frozen`, `record_ok`, `record_bad`, `mirrors`, `font`.
+Scenarios for `run`: `idle`, `ram`, `msg_fault`, `res_fault`, `msg_frozen`, `record_ok`, `record_bad`, `mirrors`, `font` (`keypad` runs an endless key-echo loop and is driven from `tests/test_system.py`).
 
 Options shared by `run`, `diag`, `handoff` and `race`:
 - `--freq KHZ`: master clock, default 380

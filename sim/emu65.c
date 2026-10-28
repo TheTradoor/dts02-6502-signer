@@ -22,10 +22,11 @@ typedef struct {
     uint32_t blocked_writes, gpio_writes;
     uint8_t halted;         /* 1 = STP/WAI or stop address reached */
     uint16_t last_pc;
-    uint32_t sr[4];         /* 595 shift registers per bank (32 bits) */
-    uint32_t st[4];         /* 595 storage registers per bank */
+    uint32_t sr[4];         /* MAX7219 shift registers (16 bits used), [0]=U21 [1]=U22 */
+    uint32_t st[4];         /* bit0 = out of shutdown, bit1 = decode enabled */
     uint8_t prev_gpio;
-    uint64_t trace;         /* FNV-1a over every bus address (instruction fetches,
+    uint64_t trace;
+    uint16_t mxdig[2][8];   /* MAX7219 digit registers, 0x100 = undefined */         /* FNV-1a over every bus address (instruction fetches,
                                operand/data reads and writes): equal traces mean
                                identical control flow and memory access patterns */
 } M;
@@ -46,18 +47,40 @@ static uint8_t rd(M *m, uint16_t a) {
     return m->mem[a];
 }
 
+/* GPIO $7F02 (spec rev 0.5): D0 DIN, D1 CLK, D5 LOAD, D6 DISPLAY_ENABLE (power),
+ * D2/D3/D4/D7 keypad rows.  Two MAX7219 in a chain: sr[0] = U21, sr[1] = U22. */
+static void mx_reset(M *m) {
+    int c, i;
+    for (c = 0; c < 2; c++) {
+        m->sr[c] = 0;
+        m->st[c] = 0;                /* bit0 = shutdown released */
+        for (i = 0; i < 8; i++) m->mxdig[c][i] = 0x100;   /* undefined */
+    }
+}
+
 static void gpio_write(M *m, uint8_t v) {
     uint8_t old = m->prev_gpio;
-    int b;
+    int c;
     m->gpio = v;
     m->gpio_writes++;
-    for (b = 0; b < 4; b++) {
-        uint8_t bit = 1 << (1 + b);
-        if (!(old & bit) && (v & bit))
-            m->sr[b] = (m->sr[b] << 1) | (v & 1);
+    if (!(v & 0x40) || m->fault) {               /* display unpowered */
+        mx_reset(m);
+        m->prev_gpio = v;
+        return;
     }
-    if (!(old & 0x20) && (v & 0x20))
-        for (b = 0; b < 4; b++) m->st[b] = m->sr[b];
+    if (!(old & 0x02) && (v & 0x02)) {           /* CLK rising: shift U21 -> U22 */
+        uint32_t out21 = (m->sr[0] >> 15) & 1;
+        m->sr[1] = ((m->sr[1] << 1) | out21) & 0xFFFF;
+        m->sr[0] = ((m->sr[0] << 1) | (v & 1)) & 0xFFFF;
+    }
+    if (!(old & 0x20) && (v & 0x20)) {           /* LOAD rising: latch both */
+        for (c = 0; c < 2; c++) {
+            int addr = (m->sr[c] >> 8) & 0xF, data = m->sr[c] & 0xFF;
+            if (addr >= 1 && addr <= 8) m->mxdig[c][addr - 1] = data;
+            else if (addr == 0xC) m->st[c] = (m->st[c] & ~1u) | (data & 1);
+            else if (addr == 0x9) m->st[c] = (m->st[c] & ~2u) | (data ? 2 : 0);
+        }
+    }
     m->prev_gpio = v;
 }
 

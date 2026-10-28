@@ -27,7 +27,18 @@ class Bench:
         self.cpu_period = self.sim.master_per_cpu * 1e9 / kw.get("master_hz", 380e3)
         self.edge_log = collections.defaultdict(list)
         if scenario is not None:
-            self.h.set_switch_byte(~SCENARIOS[scenario] & 0xFF)
+            self.set_scenario(scenario)
+
+    def set_scenario(self, name):
+        """Test firmware reads its scenario number from the RAM mailbox $3F80."""
+        self.ram.mem[0x3F80] = SCENARIOS[name]
+
+    def set_columns(self, nibble):
+        """Press row-1 keys so that, with every row driven low, port $7F00 reads
+        $F0 | nibble (bit c clear = a key in column c).  Returns that byte."""
+        labels = [self.h.keypad.LABELS[0][c] for c in range(4) if not (nibble >> c) & 1]
+        self.h.press_keypad(*labels)
+        return 0xF0 | (nibble & 0x0F)
 
     # -- observation -------------------------------------------------------
     def net(self, name):

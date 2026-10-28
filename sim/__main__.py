@@ -66,9 +66,10 @@ def cmd_check(a):
     print(f"ERC: {len(errs)} errors, {len(notes)} notes")
     for e in errs + notes:
         print("   ", e)
-    bad = [(i, s, n) for i, s, n in checks.bom(b.sim) if s != n]
+    from . import layout as LY
+    bad = [(i, s, n) for i, s, n in checks.bom(LY.generate()) if s != n]
     ok &= not bad
-    print(f"BOM vs netlist: {'all match' if not bad else bad}")
+    print(f"BOM vs physical layout: {'all match' if not bad else bad}")
     print("\nanalog:")
     print("  " + analog.report().replace("\n", "\n  "))
     return 0 if ok else 1
@@ -98,15 +99,15 @@ def cmd_run(a):
 def cmd_diag(a):
     from .runner import Bench
     b = Bench(image=specdoc.diagnostic_rom(), symbols={"loop": 0x800A}, **_bench_kw(a))
-    b.h.set_switch_byte(a.switch)
+    want = b.set_columns(a.columns)
     b.run_to("loop")
     b.run_cycles(a.cycles)
-    print(f"diagnostic ROM, raw switch byte ${a.switch:02X}: RAM[$0200]=${b.ram.mem[0x200]:02X}")
+    print(f"diagnostic ROM, keypad columns ${a.columns:X} (port reads ${want:02X}): RAM[$0200]=${b.ram.mem[0x200]:02X}")
     _summary(b)
     if a.vcd:
         b.sim.vcd.close()
         print(f"waveform written to {a.vcd}")
-    return 0 if b.ram.mem[0x200] == a.switch and not b.violations() else 1
+    return 0 if b.ram.mem[0x200] == want and not b.violations() else 1
 
 
 def cmd_handoff(a):
@@ -203,7 +204,8 @@ def main(argv=None):
             s.add_argument("scenario", choices=sorted(SCENARIOS))
             s.add_argument("--reset", action="store_true", help="press CPU RESET afterwards")
         if name == "diag":
-            s.add_argument("--switch", type=lambda x: int(x, 0), default=0xA5)
+            s.add_argument("--columns", type=lambda x: int(x, 0), default=0x5,
+                           help="keypad column pattern 0-F (0 bit = key pressed in that column)")
             s.add_argument("--cycles", type=int, default=200)
         s.add_argument("--freq", type=float, default=380, help="master clock, kHz")
         s.add_argument("--seed", type=int, default=1, help="delay Monte Carlo seed")

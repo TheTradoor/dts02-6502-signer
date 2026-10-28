@@ -61,7 +61,7 @@ class TestDocument(unittest.TestCase):
 
     def test_placement_table(self):
         rows, problems = checks.placement()
-        self.assertEqual(len(rows), 43)
+        self.assertEqual(len(rows), 28)
         self.assertEqual(problems, [])
 
 
@@ -75,8 +75,9 @@ class TestNetlist(unittest.TestCase):
         self.assertEqual(errors, [])
         self.assertEqual(notes, [])
 
-    def test_bom_counts_match_netlist(self):
-        for item, spec_qty, net_qty in checks.bom(self.bench.sim):
+    def test_bom_counts_match_physical_layout(self):
+        from sim import layout
+        for item, spec_qty, net_qty in checks.bom(layout.generate()):
             self.assertEqual(spec_qty, net_qty, item)
 
 
@@ -109,6 +110,17 @@ class TestAnalog(unittest.TestCase):
         s = analog.supervisor_margin()
         self.assertAlmostEqual(s["margin_475_v"], 0.05, delta=1e-9)
         self.assertAlmostEqual(s["margin_460_v"], 0.20, delta=1e-9)
+
+    def test_keypad_and_display_interface_levels(self):
+        k = analog.keypad_levels()
+        self.assertLess(k["schottky_low_v"], 0.8 - 0.3)        # HCT VIL with margin
+        self.assertGreater(k["silicon_low_v"], 0.6)             # why 1N4148 is rejected
+        d = analog.display_interface()
+        self.assertGreater(d["mx_input_high_v"], 3.5)           # MAX7219 VIH
+        self.assertLess(d["mx_input_high_v"], d["disp_v"] + 0.3)  # abs-max input
+        self.assertGreater(d["disp_v"], 4.0)                    # MAX7219 supply minimum
+        self.assertGreater(d["q1_beta_forced"], 0)
+        self.assertLess(d["display_peak_ma"], 230)
 
     def test_oscillator_spread_finding(self):
         # Finding F3: 10k/330p does not guarantee the spec's 400 kHz ceiling
