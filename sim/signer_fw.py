@@ -43,7 +43,8 @@ ZP = dict(P1=0x10, P2=0x12, P3=0x14, P4=0x16, MASK=0x18, BJ=0x19, JJ=0x1A, KK=0x
           BI=0x48, BK=0x49, VJ=0x4A,        # loop counters of base_mult / verify (fe_mul owns JJ)
           MULV=0x4C, SQV=0x4E, ENTV=0x50,   # multiply dispatch vectors, fe_sq_ct row entry
           QP0=0x52, QP1=0x54, QP2=0x56, QP3=0x58,   # table-multiply row pointers
-          REUSEA=0x5A)
+          REUSEA=0x5A,
+          DQL=0x5B, DQH=0x5C, SQDL=0x5D, SQDH=0x5E, SQJ8=0x5F, SQJ2=0x60)   # fe_sq_ct diagonal
 AKS = 0x0200          # 264 bytes, page aligned
 T64 = 0x0080          # 64-byte product in zero page ($80-$BF): zp,X forms are faster and wrap
                       # inside page 0, so indexing never adds a data-dependent cycle
@@ -96,6 +97,8 @@ for _n in ["NEGT", "I0", "I1", "I2", "I3", "EX", "EY", "EZI", "DU", "DV", "DV3",
     fe(_n)
 fe("NEGA", 4)
 fe("VTAB", 4 * 15)   # cached multiples 1..15 of -A for verification
+KAR = fe("KAR", 7)   # Karatsuba operands and partial products (201 bytes)
+KSAV = KAR + 220     # saved P3 across the three half products
 
 
 # ---------------------------------------------------------------------------
@@ -296,62 +299,83 @@ def gen_mul_family(g):
     lz = g.lab("z")
     g(f"{lz}: STZ {T64},X", "DEX", f"BPL {lz}", "RTS")
 
-    # ---- fe_mul_ct: rows of (a<<k) & mask(bit k of b_j) added at byte offset j
-    g("fe_mul_ct:", "JSR build_aks", "STZ JJ")
-    lj = g.lab("j")
-    g(f"{lj}: LDY JJ", "LDA (P2),Y", "STA BJ", "LDY #0")
-    lb = g.lab("b")
-    g(f"{lb}: LSR BJ")
-    mask_from_carry(g)
-    g("STA MASK", "LDX JJ", "CLC")
-    for i in range(33):
-        g(f"LDA {AKS + 8 * i},Y", "AND MASK", f"ADC {T64 + i},X", f"STA {T64 + i},X")
-    g("INY", "CPY #8")
-    loop_ne(g, lb)
-    g("INC JJ", "LDA JJ", "CMP #32")
-    loop_ne(g, lj)
-    g("JMP reduce64")
+    # ---- mul16 / mul17: T64[0..2n) = (P1)[0..n) * (P2)[0..n), constant time.
+    # Same masked row additions as before: AKS[8i+k] = byte i of (a << k),
+    # one row per multiplier bit, added at the multiplier byte's offset.
+    for n in (16, 17):
+        _gen_rowmul(g, f"mul{n}", n)
+
+    # ---- fe_mul_ct: one-level Karatsuba on the public 128-bit split
+    #   a = a0 + a1 X, b = b0 + b1 X, X = 2^128
+    #   p0 = a0 b0, p2 = a1 b1, pm = (a0+a1)(b0+b1)  (17-byte half-sums, so the
+    #   half-sum carries need no special handling)
+    #   a b = p0 + (pm - p0 - p2) X + p2 X^2
+    # (Credit: Karatsuba for the constant-time multiply was proposed in PR #5.)
+    KA0, KA1, KB0, KB1, KSA, KSB = (KAR + 17 * i for i in range(6))
+    KP0, KP2, KPM = KAR + 102, KAR + 134, KAR + 166            # 32, 32, 35 bytes
+    g("fe_mul_ct:", "LDA P3", f"STA {KSAV}", "LDA P3+1", f"STA {KSAV + 1}")
+    for src, lo, hi in (("P1", KA0, KA1), ("P2", KB0, KB1)):
+        g("LDY #31")                                    # bytes 16..31 -> high half
+        l = g.lab("kh")
+        g(f"{l}: LDA ({src}),Y", f"STA {hi - 16},Y", "DEY", "CPY #15", f"BNE {l}")
+        l = g.lab("kl")                                 # bytes 0..15 -> low half
+        g(f"{l}: LDA ({src}),Y", f"STA {lo},Y", "DEY", f"BPL {l}")
+        g(f"STZ {lo + 16}", f"STZ {hi + 16}")
+    for dst, x, y in ((KSA, KA0, KA1), (KSB, KB0, KB1)):
+        g("CLC")
+        for i in range(17):
+            g(f"LDA {x + i}", f"ADC {y + i}", f"STA {dst + i}")
+    for x, y, out, nbytes, fn in ((KA0, KB0, KP0, 32, "mul16"), (KA1, KB1, KP2, 32, "mul16"),
+                                  (KSA, KSB, KPM, 34, "mul17")):
+        g(f"LDA #<{x}", "STA P1", f"LDA #>{x}", "STA P1+1",
+          f"LDA #<{y}", "STA P2", f"LDA #>{y}", "STA P2+1", f"JSR {fn}")
+        for i in range(nbytes):
+            g(f"LDA {T64 + i}", f"STA {out + i}")
+    g(f"STZ {KPM + 34}")
+    for sub in (KP0, KP2):                                       # pm -= p0, pm -= p2
+        g("SEC")
+        for i in range(35):
+            g(f"LDA {KPM + i}", f"SBC {sub + i}" if i < 32 else "SBC #0", f"STA {KPM + i}")
+    for i in range(32):                                          # T64 = p0 | p2 << 256
+        g(f"LDA {KP0 + i}", f"STA {T64 + i}", f"LDA {KP2 + i}", f"STA {T64 + 32 + i}")
+    g("CLC")                                                     # T64 += mid << 128
+    for i in range(48):
+        g(f"LDA {T64 + 16 + i}", f"ADC {KPM + i}" if i < 35 else "ADC #0", f"STA {T64 + 16 + i}")
+    g(f"LDA {KSAV}", "STA P3", f"LDA {KSAV + 1}", "STA P3+1", "JMP reduce64")
 
     # ---- fe_sq_ct: cross terms above the diagonal once, doubled, plus diagonal
     # Row j adds bit k of a_j times (A_hi(j) << k), A_hi(j) = bytes > j of a.
     # Byte j+1 of that row is (a_{j+1} << k) & $FF = AKS[8(j+1)+k] & HIMASK[k];
-    # bytes j+2..32 equal AKS[8i+k].  Entry into the unrolled adder depends only
-    # on the public row index j.
-    g("fe_sq_ct:", "JSR build_aks", "STZ JJ")
+    # bytes j+2..32 equal AKS[8i+k].  The diagonal a_j^2 is accumulated in the
+    # same bit loop from the same mask (DQ = a_j << k, SQD += DQ & mask).
+    # Entry into the unrolled adder and the row-31 skip depend only on the
+    # public row index j.  (Credit: folding the diagonal in was proposed in PR #10.)
+    g("fe_sq_ct:", "JSR build_aks", "STZ JJ", "STZ SQJ2", "LDA #8", "STA SQJ8")
     lj = g.lab("sj")
-    g(f"{lj}: LDY JJ", f"LDA {A32},Y", "STA BJ", "STZ KK",
-      "LDX JJ", "LDA SQENT_LO,X", "STA ENTV", "LDA SQENT_HI,X", "STA ENTV+1")
+    g(f"{lj}: LDY JJ", f"LDA {A32},Y", "STA BJ", "STA DQL", "STZ DQH", "STZ SQDL", "STZ SQDH",
+      "STZ KK", "LDX JJ", "LDA SQENT_LO,X", "STA ENTV", "LDA SQENT_HI,X", "STA ENTV+1")
     lb = g.lab("sb")
     g(f"{lb}: LSR BJ")
     mask_from_carry(g)
     g("STA MASK")
-    # first byte: position j+1
-    g("LDA JJ", "ASL A", "ASL A", "ASL A", "CLC", "ADC #8", "ADC KK", "TAY",
-      f"LDA {AKS},Y", "LDX KK", "AND HIMASKT,X", "AND MASK", "STA T0",
-      "LDA JJ", "ASL A", "TAX", "LDA T0", "LDY KK",           # byte j+1 of row j lands at 2j+1
+    g("LDA DQL", "AND MASK", "CLC", "ADC SQDL", "STA SQDL",          # diagonal
+      "LDA DQH", "AND MASK", "ADC SQDH", "STA SQDH", "ASL DQL", "ROL DQH")
+    g("LDA JJ", "CMP #31", f"BNE {lb}_c", f"JMP {lb}_x", f"{lb}_c:")  # row 31: no cross terms
+    g("LDA SQJ8", "CLC", "ADC KK", "TAY",                             # byte j+1 -> position 2j+1
+      f"LDA {AKS},Y", "LDX KK", "AND HIMASKT,X", "AND MASK", "LDX SQJ2", "LDY KK",
       "CLC", f"ADC {T64 + 1},X", f"STA {T64 + 1},X", "LDX JJ", "JMP (ENTV)")
     g("sq_rows:")
     for i in range(2, 33):
         g(f"sqe{i}: LDA {AKS + 8 * i},Y", "AND MASK", f"ADC {T64 + i},X", f"STA {T64 + i},X")
-    g("INC KK", "LDA KK", "CMP #8")
+    g(f"{lb}_x: INC KK", "LDA KK", "CMP #8")
     loop_ne(g, lb)
-    g("INC JJ", "LDA JJ", "CMP #31")
+    g("LDX SQJ2", "LDA SQDL", f"STA {DIAG},X", "LDA SQDH", f"STA {DIAG + 1},X",
+      "INC SQJ2", "INC SQJ2", "LDA SQJ8", "CLC", "ADC #8", "STA SQJ8",
+      "INC JJ", "LDA JJ", "CMP #32")
     loop_ne(g, lj)
-    # double the cross sum
-    g(f"ASL {T64}")
+    g(f"ASL {T64}")                                                   # double the cross sum
     for i in range(1, 64):
         g(f"ROL {T64 + i}")
-    # diagonal: DIAG[2j..2j+1] = a_j^2, constant-time shift-and-add
-    g("LDX #0")
-    ld = g.lab("dg")
-    g(f"{ld}: LDA {A32},X", "STA BJ", "STA T0", "STZ T1", "STZ T2", "STZ T3", "LDY #8")
-    lq = g.lab("dq")
-    g(f"{lq}: LSR BJ")
-    mask_from_carry(g)
-    g("STA MASK", "LDA T0", "AND MASK", "CLC", "ADC T2", "STA T2",
-      "LDA T1", "AND MASK", "ADC T3", "STA T3", "ASL T0", "ROL T1", "DEY", f"BNE {lq}")
-    g("TXA", "ASL A", "TAY", "LDA T2", f"STA {DIAG},Y", "LDA T3", f"STA {DIAG + 1},Y",
-      "INX", "CPX #32", f"BNE {ld}")
     g("CLC")
     for i in range(64):
         g(f"LDA {T64 + i}", f"ADC {DIAG + i}", f"STA {T64 + i}")
@@ -443,6 +467,38 @@ def gen_mul_family(g):
     for i in range(2, 32):
         g(f"LDY #{i}", "LDA (P3),Y", "ADC #0", "STA (P3),Y")
     g("JMP fold_add")
+
+
+def _gen_rowmul(g, name, n):
+    """T64[0..2n) = (P1)[0..n) * (P2)[0..n): masked row additions, constant time."""
+    g(f"{name}:", f"LDY #{n - 1}")
+    l = g.lab("ld")
+    g(f"{l}: LDA (P1),Y", f"STA {W33},Y", "DEY", f"BPL {l}", f"STZ {W33 + n}", "LDX #0")
+    lk = g.lab("k")
+    g(f"{lk}:")
+    for i in range(n + 1):
+        g(f"LDA {W33 + i}", f"STA {AKS + 8 * i},X")
+    g(f"ASL {W33}")
+    for i in range(1, n + 1):
+        g(f"ROL {W33 + i}")
+    g("INX", "CPX #8")
+    loop_ne(g, lk)
+    g(f"LDX #{2 * n - 1}")
+    lz = g.lab("z")
+    g(f"{lz}: STZ {T64},X", "DEX", f"BPL {lz}", "STZ JJ")
+    lj = g.lab("j")
+    g(f"{lj}: LDY JJ", "LDA (P2),Y", "STA BJ", "LDY #0")
+    lb = g.lab("b")
+    g(f"{lb}: LSR BJ")
+    mask_from_carry(g)
+    g("STA MASK", "LDX JJ", "CLC")
+    for i in range(n + 1):
+        g(f"LDA {AKS + 8 * i},Y", "AND MASK", f"ADC {T64 + i},X", f"STA {T64 + i},X")
+    g("INY", "CPY #8")
+    loop_ne(g, lb)
+    g("INC JJ", "LDA JJ", f"CMP #{n}")
+    loop_ne(g, lj)
+    g("RTS")
 
 
 def _qs_setrow(g):
@@ -1246,14 +1302,20 @@ def gen_main(g, double_sign=True, verify=True):
     g(f"{l}: LDA LEN", "ORA LEN+1", f"BNE {l}_g", "RTS", f"{l}_g: LDA (PTR)", "STA (PTR2)",
       "INC PTR", f"BNE {l}_a", "INC PTR+1", f"{l}_a: INC PTR2", f"BNE {l}_b", "INC PTR2+1",
       f"{l}_b: LDA LEN", f"BNE {l}_c", "DEC LEN+1", f"{l}_c: DEC LEN", f"JMP {l}")
-    # crc32 over (PTR), LEN -> CRC (little-endian)
+    # crc32 over (PTR), LEN -> CRC (little-endian).  Bitwise, no tables: it runs
+    # only over public envelope/record bytes and keeps ROM space free.
     g("crc32:", "LDA #$FF", "STA CRC", "STA CRC+1", "STA CRC+2", "STA CRC+3")
     l = g.lab("cr")
-    g(f"{l}: LDA LEN", "ORA LEN+1", "BEQ " + l + "_d",
-      "LDA (PTR)", "EOR CRC", "TAX",
-      "LDA CRC+1", "EOR CRCT0,X", "STA CRC", "LDA CRC+2", "EOR CRCT1,X", "STA CRC+1",
-      "LDA CRC+3", "EOR CRCT2,X", "STA CRC+2", "LDA CRCT3,X", "STA CRC+3",
-      "INC PTR", f"BNE {l}_a", "INC PTR+1", f"{l}_a: LDA LEN", f"BNE {l}_b", "DEC LEN+1", f"{l}_b: DEC LEN", f"JMP {l}")
+    g(f"{l}: LDA LEN", "ORA LEN+1", f"BNE {l}_g", f"JMP {l}_d",
+      f"{l}_g: LDA (PTR)", "EOR CRC", "STA CRC", "LDX #8")
+    lb = g.lab("cb")
+    poly = (0xEDB88320).to_bytes(4, "little")
+    g(f"{lb}: LSR CRC+3", "ROR CRC+2", "ROR CRC+1", "ROR CRC", f"BCC {lb}_n")
+    for i in range(4):
+        g(f"LDA CRC+{i}", f"EOR #${poly[i]:02X}", f"STA CRC+{i}")
+    g(f"{lb}_n: DEX", f"BNE {lb}",
+      "INC PTR", f"BNE {l}_a", "INC PTR+1", f"{l}_a: LDA LEN", f"BNE {l}_b", "DEC LEN+1",
+      f"{l}_b: DEC LEN", f"JMP {l}")
     g(f"{l}_d: LDX #3")
     l2 = g.lab("cx")
     g(f"{l2}: LDA CRC,X", "EOR #$FF", "STA CRC,X", "DEX", f"BPL {l2}", "RTS")
@@ -1274,9 +1336,9 @@ def gen_data(g):
     g("HIMASKT:")
     bytes_(bytes(HIMASK))
     g("SQENT_LO:")
-    g("        .byte " + ", ".join(f"<sqe{j + 2}" for j in range(31)))
+    g("        .byte " + ", ".join(f"<sqe{j + 2}" for j in range(31)) + ", 0")
     g("SQENT_HI:")
-    g("        .byte " + ", ".join(f">sqe{j + 2}" for j in range(31)))
+    g("        .byte " + ", ".join(f">sqe{j + 2}" for j in range(31)) + ", 0")
     g("SHAK:")
     for k in sha_k():
         bytes_(k.to_bytes(8, "little"))
@@ -1289,15 +1351,6 @@ def gen_data(g):
     bytes_(b"DTS02IN1")
     g("OUT_MAGIC:")
     bytes_(b"DTS02OUT")
-    t = []
-    for i in range(256):
-        c = i
-        for _ in range(8):
-            c = (c >> 1) ^ (0xEDB88320 if c & 1 else 0)
-        t.append(c)
-    for k in range(4):
-        g(f".align 256", f"CRCT{k}:")
-        bytes_(bytes((v >> (8 * k)) & 0xFF for v in t))
 
 
 def source(double_sign=True, verify=True):

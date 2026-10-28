@@ -65,6 +65,30 @@ class TestDocument(unittest.TestCase):
         self.assertEqual(problems, [])
 
 
+class TestAssemblerExpressions(unittest.TestCase):
+    def byte(self, expr):
+        return assemble(".byte " + expr, org=0, size=1)[0][0]
+
+    def test_precedence_unary_and_literals(self):
+        for expr, want in [("2+3*4", 14), ("10-2*3", 4), ("3*4-2*5", 2), ("$10-$08-$02", 6),
+                           ("-1+2", 1), ("2*-3+10", 4), ("'+'", 43), ("'*'+1", 43),
+                           ("'-'", 45), ("<$1234", 0x34), (">$1234", 0x12)]:
+            with self.subTest(expr):
+                self.assertEqual(self.byte(expr), want)
+
+    def test_overlapping_output_rejected(self):
+        from sim.asm import AsmError
+        with self.assertRaises(AsmError):
+            assemble(".org $8000\n.byte 1, 2, 3\n.org $8001\n.byte 9")
+
+    def test_malformed_expressions_rejected(self):
+        from sim.asm import AsmError
+        for expr in ["2+", "*3", "2**3", "2 3"]:
+            with self.subTest(expr):
+                with self.assertRaises(AsmError):
+                    self.byte(expr)
+
+
 class TestNetlist(unittest.TestCase):
     @classmethod
     def setUpClass(cls):

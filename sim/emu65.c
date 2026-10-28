@@ -26,7 +26,8 @@ typedef struct {
     uint32_t st[4];         /* bit0 = out of shutdown, bit1 = decode enabled */
     uint8_t prev_gpio;
     uint64_t trace;
-    uint16_t mxdig[2][8];   /* MAX7219 digit registers, 0x100 = undefined */         /* FNV-1a over every bus address (instruction fetches,
+    uint16_t mxdig[2][8];   /* MAX7219 digit registers, 0x100 = undefined */
+    uint8_t io_writes[32];  /* bitmap: bit (a & 0xFF) set when $7Fxx is written */         /* FNV-1a over every bus address (instruction fetches,
                                operand/data reads and writes): equal traces mean
                                identical control flow and memory access patterns */
 } M;
@@ -88,6 +89,7 @@ static void wr(M *m, uint16_t a, uint8_t v) {
     TRACE(m, a | 0x10000);
     if (a >= 0x8000) return;
     if (a >= 0x7F00) {
+        m->io_writes[(a & 0xFF) >> 3] |= (uint8_t)(1u << (a & 7));
         switch (a & 7) {
         case 2: gpio_write(m, v); break;
         case 3: m->msg_lock = 1; break;

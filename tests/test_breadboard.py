@@ -68,6 +68,16 @@ class TestLayout(unittest.TestCase):
         self.assertLess(info2["PHI2 total mm"], 60)
 
 
+class TestLayoutGeometry(unittest.TestCase):
+    def test_measurements_keep_their_own_grid(self):
+        custom = dict(LY.GRID, BB10=(6, 0))
+        a = LY.generate(grid=custom)
+        before = (LY.wire_report(a)[0], LY.physical_netlist(a)[3])
+        LY.generate()                                # must not disturb layout a
+        self.assertEqual(before, (LY.wire_report(a)[0], LY.physical_netlist(a)[3]))
+        self.assertNotEqual(before[0], LY.wire_report(LY.generate())[0])
+
+
 class TestPhysicalSimulation(unittest.TestCase):
     def test_diagnostic_rom(self):
         b, _ = phys_bench(image=specdoc.diagnostic_rom(), symbols={"loop": 0x800A}, seed=3)

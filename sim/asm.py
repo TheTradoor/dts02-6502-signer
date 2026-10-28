@@ -14,11 +14,16 @@ operand is known on the first pass to be below $100 and the instruction has
 a zero-page form, except that a 4-digit hex literal ($0012) forces absolute;
 the choice is frozen so both passes agree on sizes.  INC A / DEC A assemble
 to the 65C02 accumulator forms.
-Expressions: $hex, %bin, decimal, 'c', labels/constants, + - * and parentheses
-are not supported beyond <expr / >expr (low / high byte).
+Expressions: $hex, %bin, decimal, 'c' (any character, including + - *),
+labels/constants, unary + and -, binary + - and *, with * binding tighter
+than + and - (left to right otherwise), and a leading <expr / >expr (low /
+high byte of the whole expression).  Parentheses are not supported.
+(Credit: the precedence and character-literal bugs were reported in PR #4.)
 
 Every operand and data value is range-checked on the final pass: values
-that do not fit their encoding raise AsmError instead of being truncated.
+that do not fit their encoding raise AsmError instead of being truncated,
+and emitting a byte at an address already emitted (for example code or a
+table running into the vectors after a later .org) is an error.
 (Credit: the silent-truncation bug was reported in PR #1.)
 """
 
@@ -58,22 +63,46 @@ class Assembler:
             return self.eval(expr[1:], final) & 0xFF
         if expr.startswith(">"):
             return (self.eval(expr[1:], final) >> 8) & 0xFF
-        terms = re.split(r"(?<=[^+\-*])\s*([+\-*])\s*", expr)
-        total, op = None, "+"
-        for tok in terms:
-            if tok in "+-*":
-                op = tok
-                continue
-            v = self.atom(tok.strip(), final)
-            if total is None:
-                total = v if op == "+" else -v
-            elif op == "+":
-                total += v
-            elif op == "-":
-                total -= v
-            else:
-                total *= v
-        return total
+        # recursive descent: expr = term {(+|-) term}; term = unary {* unary};
+        # unary = (+|-) unary | atom.  'c' literals are single tokens, so an
+        # operator inside quotes ('+') is a character, not an operator.
+        toks = re.findall(r"'.'|[+\-*]|[^\s+\-*]+", expr)
+        if not toks or "".join(toks) != re.sub(r"\s+", "", expr):
+            raise AsmError(f"bad expression {expr!r}")
+        pos = [0]
+
+        def peek():
+            return toks[pos[0]] if pos[0] < len(toks) else None
+
+        def take():
+            pos[0] += 1
+            return toks[pos[0] - 1]
+
+        def unary():
+            t = peek()
+            if t in ("-", "+"):
+                take()
+                v = unary()
+                return -v if t == "-" else v
+            if t is None or t in ("*",):
+                raise AsmError(f"bad expression {expr!r}")
+            return self.atom(take(), final)
+
+        def term():
+            v = unary()
+            while peek() == "*":
+                take()
+                v *= unary()
+            return v
+
+        v = term()
+        while peek() in ("+", "-"):
+            op = take()
+            w = term()
+            v = v + w if op == "+" else v - w
+        if peek() is not None:
+            raise AsmError(f"bad expression {expr!r}")
+        return v
 
     def atom(self, tok, final):
         if tok.startswith("$"):
@@ -140,6 +169,7 @@ class Assembler:
     def assemble(self):
         for final in (False, True):
             out = bytearray([self.fill] * self.size)
+            self.written = bytearray(self.size) if final else None
             pc = self.base
             for lineno, raw in enumerate(self.source.splitlines(), 1):
                 line = raw.split(";", 1)[0].strip()
@@ -154,6 +184,10 @@ class Assembler:
         off = pc - self.base
         if not 0 <= off < self.size:
             raise AsmError(f"address ${pc:04X} outside image")
+        if self.written is not None:
+            if self.written[off]:
+                raise AsmError(f"address ${pc:04X} written twice (code or data overlaps)")
+            self.written[off] = 1
         out[off] = b & 0xFF
 
     @staticmethod

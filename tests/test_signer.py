@@ -49,6 +49,26 @@ class TestPrimitives(unittest.TestCase):
                     r, _ = self.fw.fe_op(op, a, None if square else b)
                     self.assertEqual(r % P, a * b % P)
 
+    def test_constant_time_multiply_carry_cases_and_traces(self):
+        """Karatsuba half-sums at or above 2^128 exercise every carry path; every
+        input must give the same bus-address trace and cycle count."""
+        rnd = random.Random(99)
+        P, H = F.P, 2**128
+        vals = [0, 1, P - 1, P, 2**256 - 1, 2**256 - 38, H - 1, H, H + 1, (H - 1) * (H + 1)]
+        vals += [(rnd.getrandbits(127) | 2**127) + ((rnd.getrandbits(127) | 2**127) << 128)
+                 for _ in range(12)]
+        vals += [rnd.getrandbits(256) for _ in range(12)]
+        for op, square in (("fe_mul_ct", False), ("fe_sq_ct", True)):
+            traces = set()
+            for i, a in enumerate(vals):
+                b = a if square else vals[(7 * i + 3) % len(vals)]
+                self.fw.m.m.trace = 0
+                r, cycles = self.fw.fe_op(op, a, None if square else b)
+                traces.add((self.fw.m.m.trace, cycles))
+                with self.subTest(op=op, i=i):
+                    self.assertEqual(r % P, a * b % P)
+            self.assertEqual(len(traces), 1, op)
+
     def test_sha512_all_padding_boundaries(self):
         rnd = random.Random(2)
         for n in [0, 1, 111, 112, 113, 127, 128, 129, 239, 240, 255, 256, 1232, 4096]:

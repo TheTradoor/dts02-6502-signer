@@ -100,18 +100,19 @@ U38's clock is the CPU PHI2 net (Section 9.2, "PHI2 for U38 pin 3 is U7 pin 2"),
 
 ### F11. High (usability): a spec-compliant signature takes hours at the specified clock
 
-The reference firmware (`sim/signer_fw.py`, below) implements Section 10.2 exactly as specified: constant time for secrets with no secret-indexed tables, two deterministic signatures compared byte-for-byte, and on-device verification before release. Measured on the cycle-exact emulator, signing a 150-byte Solana transfer took **1.17 × 10⁹ CPU cycles** in the first version and **0.68 × 10⁹** after optimization:
+The reference firmware (`sim/signer_fw.py`, below) implements Section 10.2 exactly as specified: constant time for secrets with no secret-indexed tables, two deterministic signatures compared byte-for-byte, and on-device verification before release. Measured on the cycle-exact emulator, signing a 150-byte Solana transfer took **1.17 × 10⁹ CPU cycles** in the first version and **0.65 × 10⁹** after optimization:
 
 | Work | First version | Optimized | At 88 kHz (rev 0.4 max) | At 47 kHz (typical) | At 1 MHz |
 |---|---:|---:|---:|---:|---:|
-| One signature, no verify | 0.30 × 10⁹ | 0.26 × 10⁹ | 0.8 h | 1.5 h | 4 min |
-| Spec flow: two signatures + verify | 1.17 × 10⁹ | 0.68 × 10⁹ | 2.1 h | 4.0 h | 11 min |
+| One signature, no verify | 0.30 × 10⁹ | 0.24 × 10⁹ | 0.7 h | 1.4 h | 4 min |
+| Spec flow: two signatures + verify | 1.17 × 10⁹ | 0.65 × 10⁹ | 2.0 h | 3.8 h | 11 min |
 
 The optimized firmware stays inside spec Section 10.2 and adds no hardware:
 - **Constant-time squaring.** Cross products are computed once above the diagonal and doubled. It takes 114k cycles against 147k for a general multiply, and squarings dominate inversions and doublings.
 - **Table multiply for verification only.** A quarter-square multiply with 2 KB of ROM tables takes 88k cycles. It is used only inside verification, where every operand is public, through a dispatch vector that is switched back to constant time on every exit path (`test_verify_restores_constant_time_multiply`).
 - **No duplicate [a]B.** The second signature reuses A, which was already checked byte-for-byte against the configured expected key.
 - **Zero-page product buffer.** Every product byte is one cycle faster to store.
+- **Karatsuba multiply.** The constant-time multiply is one level of Karatsuba on the public 128-bit split: two 16-byte and one 17-byte masked-row products, 133k cycles. The squaring accumulates its diagonal inside the cross-term bit loop, 107k cycles. Both ideas were proposed in outside pull requests (#5, #10) and reimplemented here. Tests target the half-sum carry cases and require one identical trace for every input.
 
 The emulator hashes every bus address it touches. `derive` and `sign` produce identical traces and cycle counts for different seeds (`TestConstantTime`), which demonstrates no secret-dependent branches or memory addresses.
 

@@ -24,7 +24,8 @@ class M(ctypes.Structure):
                 ("sr", ctypes.c_uint32 * 4), ("st", ctypes.c_uint32 * 4),
                 ("prev_gpio", ctypes.c_uint8),
                 ("trace", ctypes.c_uint64),
-                ("mxdig", (ctypes.c_uint16 * 8) * 2)]
+                ("mxdig", (ctypes.c_uint16 * 8) * 2),
+                ("io_writes", ctypes.c_uint8 * 32)]
 
 
 _lib = None
@@ -74,6 +75,14 @@ class Machine:
     @property
     def cycles(self):
         return self.m.cycles
+
+    def io_addresses_written(self):
+        """Every $7Fxx address stored to since the bitmap was last cleared."""
+        return {0x7F00 | i for i in range(256) if self.m.io_writes[i >> 3] & (1 << (i & 7))}
+
+    def clear_io_log(self):
+        for i in range(32):
+            self.m.io_writes[i] = 0
 
     def display_masks(self):
         """Segment masks (bit0=a .. bit6=g, bit7=dp) of the 16 digits from the
